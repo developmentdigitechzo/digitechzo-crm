@@ -1,0 +1,232 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  status    String   @default("ACTIVE")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users     User[]
+  auditLogs AuditLog[]
+  leads     Lead[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  roleId         String       @map("role_id")
+  name           String
+  email          String       @unique
+  phone          String?
+  passwordHash   String       @map("password_hash")
+  status         String       @default("ACTIVE")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  ownedLeads      Lead[]              @relation("LeadOwner")
+  nextActionLeads Lead[]              @relation("LeadNextActionOwner")
+  qualifiedLeads  LeadQualification[] @relation("LeadQualifier")
+
+  @@index([organizationId])
+  @@index([roleId])
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @default(uuid())
+  name            String           @unique
+  description     String?
+  isSystem        Boolean          @default(true) @map("is_system")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  resource        String
+  action          String
+  description     String?
+  createdAt       DateTime         @default(now()) @map("created_at")
+
+  rolePermissions RolePermission[]
+
+  @@unique([resource, action])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  isRevoked Boolean   @default(false) @map("is_revoked")
+  revokedAt DateTime? @map("revoked_at")
+  expiresAt DateTime  @map("expires_at")
+  ipAddress String?   @map("ip_address")
+  userAgent String?   @map("user_agent")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model AuditLog {
+  id             String        @id @default(uuid())
+  organizationId String        @map("organization_id")
+  userId         String?       @map("user_id")
+  action         String
+  resource       String
+  resourceId     String?       @map("resource_id")
+  details        Json?
+  ipAddress      String?       @map("ip_address")
+  userAgent      String?       @map("user_agent")
+  requestId      String?       @map("request_id")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model PipelineStage {
+  id                  String   @id @default(uuid())
+  name                String
+  order               Int
+  stageType           String   @map("stage_type")
+  dealCountBenchmark  Int      @default(0) @map("deal_count_benchmark")
+  totalValueBenchmark Decimal  @default(0) @map("total_value_benchmark")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([order])
+  @@map("pipeline_stages")
+}
+
+model LostReason {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  label     String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("lost_reasons")
+}
+
+model Lead {
+  id                String             @id @default(uuid())
+  organizationId    String             @map("organization_id")
+  ownerId           String             @map("owner_id")
+  fullName          String             @map("full_name")
+  companyName       String?            @map("company_name")
+  title             String?
+  phone             String
+  email             String
+  source            String             // META_ADS, GOOGLE_ADS, WEBSITE_FORM, WHATSAPP, MANUAL, IMPORT, PHONE_INBOUND
+  
+  // Separation of Lifecycle Status, Priority, and Temperature
+  status            String             @default("NEW") // NEW, CONTACTED, QUALIFIED, UNQUALIFIED, CONVERTED, LOST
+  priority          String             @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  temperature       String?            // HOT, WARM, COLD (Optional)
+  
+  // Scoring
+  leadScore         Int?               @map("lead_score") // Nullable, range 0–100
+  serviceInterest   String             @map("service_interest")
+  
+  // Unqualification Governance (BR-QUAL-03)
+  unqualifiedReason String?            @map("unqualified_reason")
+  unqualifiedNotes  String?            @map("unqualified_notes")
+  
+  // Lightweight Lead-Level Next Action Snapshot (BR-ACT-01)
+  lastActivityAt    DateTime           @default(now()) @map("last_activity_at")
+  nextActionDueAt   DateTime?          @map("next_action_due_at")
+  nextActionType    String?            @map("next_action_type") // CALL, WHATSAPP, EMAIL, MEETING, PROPOSAL, INTERNAL_REVIEW
+  nextActionPurpose String?            @map("next_action_purpose")
+  nextActionOwnerId String?            @map("next_action_owner_id")
+  
+  // Soft Deletion
+  deletedAt         DateTime?          @map("deleted_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  // Relations
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner             User               @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  nextActionOwner   User?              @relation("LeadNextActionOwner", fields: [nextActionOwnerId], references: [id], onDelete: SetNull)
+  qualification     LeadQualification?
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([priority])
+  @@index([source])
+  @@index([phone])
+  @@index([email])
+  @@index([createdAt])
+  @@index([lastActivityAt])
+  @@index([nextActionDueAt])
+  @@map("leads")
+}
+
+model LeadQualification {
+  id                String       @id @default(uuid())
+  leadId            String       @unique @map("lead_id")
+  
+  // Structured BANT Criteria (BR-QUAL-01)
+  budgetAmount      Decimal?     @map("budget_amount") @db.Decimal(12, 2)
+  budgetStatus      String?      @map("budget_status") // CONFIRMED, ESTIMATED, EXPLORING, NO_BUDGET
+  authorityLevel    String?      @map("authority_level") // DECISION_MAKER, INFLUENCER, EVALUATOR, GATEKEEPER
+  timelineHorizon   String?      @map("timeline_horizon") // IMMEDIATE_2WEEKS, ONE_MONTH, THREE_MONTHS, EXPLORING
+  urgencyRating     Int?         @default(3) @map("urgency_rating") // 1 to 5
+  problemStatement  String?      @map("problem_statement") @db.Text
+  notes             String?      @db.Text
+  
+  qualifiedByUserId String?      @map("qualified_by_user_id")
+  qualifiedAt       DateTime     @default(now()) @map("qualified_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  lead              Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  qualifiedByUser   User?        @relation("LeadQualifier", fields: [qualifiedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([leadId])
+  @@map("lead_qualifications")
+}

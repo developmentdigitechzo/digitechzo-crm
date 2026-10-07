@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-10-06T11:14:44.822Z",
+  "results": {
+    "390": {
+      "screenshot": "pipeline-390.png",
+      "overflow": false,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "768": {
+      "screenshot": "pipeline-768.png",
+      "overflow": false,
+      "scrollWidth": 768,
+      "clientWidth": 768
+    },
+    "1024": {
+      "screenshot": "pipeline-1024.png",
+      "overflow": false,
+      "scrollWidth": 1024,
+      "clientWidth": 1024
+    },
+    "1440": {
+      "screenshot": "pipeline-1440.png",
+      "overflow": false,
+      "scrollWidth": 1440,
+      "clientWidth": 1440
+    }
+  },
+  "totalConsoleErrors": 0,
+  "errors": []
+}

@@ -1,0 +1,82 @@
+{
+  "timestamp": "2026-10-05T14:28:05.412Z",
+  "screenshots": [
+    "login-1440.png",
+    "login-390.png",
+    "shell-1440-expanded.png",
+    "shell-1440-collapsed.png",
+    "shell-1024.png",
+    "mobile-390-closed.png",
+    "mobile-390-drawer.png"
+  ],
+  "routeResults": [
+    {
+      "route": "/login",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "DigiTechzo CRM",
+      "errors": []
+    },
+    {
+      "route": "/dashboard",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Dashboard",
+      "errors": []
+    },
+    {
+      "route": "/leads",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Leads",
+      "errors": []
+    },
+    {
+      "route": "/pipeline",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Pipeline",
+      "errors": []
+    },
+    {
+      "route": "/tasks",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Tasks & Queue",
+      "errors": []
+    },
+    {
+      "route": "/activities",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Activities",
+      "errors": []
+    },
+    {
+      "route": "/meetings",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Meetings & Demos",
+      "errors": []
+    },
+    {
+      "route": "/proposals",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Proposals",
+      "errors": []
+    },
+    {
+      "route": "/customers",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Customers",
+      "errors": []
+    },
+    {
+      "route": "/team",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Team",
+      "errors": []
+    },
+    {
+      "route": "/settings",
+      "title": "DigiTechzo CRM — Sales & Operations",
+      "heading": "Settings",
+      "errors": []
+    }
+  ],
+  "totalConsoleErrors": 0,
+  "errors": []
+}

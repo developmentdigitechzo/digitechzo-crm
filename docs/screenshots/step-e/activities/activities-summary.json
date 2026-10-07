@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-10-06T12:07:51.755Z",
+  "results": {
+    "390": {
+      "screenshot": "activities-390.png",
+      "overflow": false,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "768": {
+      "screenshot": "activities-768.png",
+      "overflow": false,
+      "scrollWidth": 763,
+      "clientWidth": 763
+    },
+    "1024": {
+      "screenshot": "activities-1024.png",
+      "overflow": false,
+      "scrollWidth": 1019,
+      "clientWidth": 1019
+    },
+    "1440": {
+      "screenshot": "activities-1440.png",
+      "overflow": false,
+      "scrollWidth": 1435,
+      "clientWidth": 1435
+    }
+  },
+  "totalConsoleErrors": 0,
+  "errors": []
+}

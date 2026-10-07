@@ -1,0 +1,297 @@
+{
+  "timestamp": "2026-10-06T10:46:09.786Z",
+  "routesTested": [
+    {
+      "path": "/dashboard",
+      "viewports": {
+        "390": {
+          "screenshot": "dashboard-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "dashboard-768.png",
+          "overflow": false,
+          "scrollWidth": 763,
+          "clientWidth": 763
+        },
+        "1024": {
+          "screenshot": "dashboard-1024.png",
+          "overflow": false,
+          "scrollWidth": 1019,
+          "clientWidth": 1019
+        },
+        "1440": {
+          "screenshot": "dashboard-1440.png",
+          "overflow": false,
+          "scrollWidth": 1435,
+          "clientWidth": 1435
+        }
+      }
+    },
+    {
+      "path": "/leads",
+      "viewports": {
+        "390": {
+          "screenshot": "leads-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "leads-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "leads-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "leads-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/pipeline",
+      "viewports": {
+        "390": {
+          "screenshot": "pipeline-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "pipeline-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "pipeline-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "pipeline-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/tasks",
+      "viewports": {
+        "390": {
+          "screenshot": "tasks-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "tasks-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "tasks-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "tasks-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/activities",
+      "viewports": {
+        "390": {
+          "screenshot": "activities-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "activities-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "activities-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "activities-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/meetings",
+      "viewports": {
+        "390": {
+          "screenshot": "meetings-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "meetings-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "meetings-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "meetings-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/proposals",
+      "viewports": {
+        "390": {
+          "screenshot": "proposals-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "proposals-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "proposals-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "proposals-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/customers",
+      "viewports": {
+        "390": {
+          "screenshot": "customers-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "customers-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "customers-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "customers-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/team",
+      "viewports": {
+        "390": {
+          "screenshot": "team-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "team-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "team-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "team-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    },
+    {
+      "path": "/settings",
+      "viewports": {
+        "390": {
+          "screenshot": "settings-390.png",
+          "overflow": false,
+          "scrollWidth": 390,
+          "clientWidth": 390
+        },
+        "768": {
+          "screenshot": "settings-768.png",
+          "overflow": false,
+          "scrollWidth": 768,
+          "clientWidth": 768
+        },
+        "1024": {
+          "screenshot": "settings-1024.png",
+          "overflow": false,
+          "scrollWidth": 1024,
+          "clientWidth": 1024
+        },
+        "1440": {
+          "screenshot": "settings-1440.png",
+          "overflow": false,
+          "scrollWidth": 1440,
+          "clientWidth": 1440
+        }
+      }
+    }
+  ],
+  "totalConsoleErrors": 0,
+  "errors": []
+}

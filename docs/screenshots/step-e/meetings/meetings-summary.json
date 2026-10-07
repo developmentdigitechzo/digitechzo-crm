@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-10-06T12:21:08.004Z",
+  "results": {
+    "390": {
+      "screenshot": "meetings-390.png",
+      "overflow": false,
+      "scrollWidth": 390,
+      "clientWidth": 390
+    },
+    "768": {
+      "screenshot": "meetings-768.png",
+      "overflow": false,
+      "scrollWidth": 763,
+      "clientWidth": 763
+    },
+    "1024": {
+      "screenshot": "meetings-1024.png",
+      "overflow": false,
+      "scrollWidth": 1019,
+      "clientWidth": 1019
+    },
+    "1440": {
+      "screenshot": "meetings-1440.png",
+      "overflow": false,
+      "scrollWidth": 1440,
+      "clientWidth": 1440
+    }
+  },
+  "totalConsoleErrors": 0,
+  "errors": []
+}
