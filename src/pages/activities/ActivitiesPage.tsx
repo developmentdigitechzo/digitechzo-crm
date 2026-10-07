@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
 import { SearchInput } from '@/components/common/SearchInput';
@@ -16,8 +17,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { MOCK_ACTIVITIES, MOCK_LEADS } from '@/mocks/mockData';
-import { ActivityItem } from '@/types/crm';
+import { crmApi } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import { ActivityItem, ActivityType, CreateActivityPayload } from '@/types/crm';
 import { formatDate, cn } from '@/lib/utils';
 import {
   PlusCircle,
@@ -35,13 +37,17 @@ import {
   Activity,
   RotateCcw,
   ExternalLink,
+  CheckCircle2,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 
-type ActivityType = 'CALL' | 'WHATSAPP' | 'EMAIL' | 'NOTE' | 'MEETING' | 'STAGE_CHANGE';
 type CallOutcome = 'CONNECTED' | 'NO_ANSWER' | 'BUSY' | 'CALLBACK_REQUESTED';
 
 export const ActivitiesPage: React.FC = () => {
-  const [activities, setActivities] = useState<ActivityItem[]>(MOCK_ACTIVITIES);
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
   const [prospectFilter, setProspectFilter] = useState<string>('ALL');
@@ -57,19 +63,106 @@ export const ActivitiesPage: React.FC = () => {
   // Form state for logging interaction
   const [newActivityForm, setNewActivityForm] = useState({
     type: 'CALL' as ActivityType,
-    leadId: MOCK_LEADS[0]?.id || 'lead-1',
-    leadName: MOCK_LEADS[0]?.fullName || 'Rohan Deshmukh',
+    leadId: '',
     title: '',
     description: '',
     callOutcome: 'CONNECTED' as CallOutcome,
     callDuration: '10m 15s',
-    authorName: 'Arjun Verma',
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Real backend Queries
+  const {
+    data: activitiesResponse,
+    isLoading: isActivitiesLoading,
+    isError: isActivitiesError,
+    error: activitiesError,
+    refetch: refetchActivities,
+  } = useQuery({
+    queryKey: ['activities'],
+    queryFn: () => crmApi.getActivities({ limit: 100 }),
+  });
+
+  const { data: leadsResponse } = useQuery({
+    queryKey: ['leads'],
+    queryFn: () => crmApi.getLeads({ limit: 100 }),
+  });
+
+  const leads = useMemo(() => {
+    return (
+      leadsResponse?.items ||
+      leadsResponse?.leads ||
+      (Array.isArray(leadsResponse?.data) ? leadsResponse?.data : leadsResponse?.data?.items) ||
+      []
+    );
+  }, [leadsResponse]);
+
+  // Map Backend Activities to frontend ActivityItem models
+  const rawActivities = useMemo(() => {
+    return (
+      activitiesResponse?.data ||
+      activitiesResponse?.items ||
+      (Array.isArray(activitiesResponse) ? activitiesResponse : [])
+    );
+  }, [activitiesResponse]);
+
+  const activities: ActivityItem[] = useMemo(() => {
+    return rawActivities.map((act: any) => {
+      let type: ActivityType = 'NOTE';
+      if (
+        ['CALL', 'WHATSAPP', 'EMAIL', 'NOTE', 'MEETING', 'STAGE_CHANGE', 'TASK', 'SYSTEM'].includes(
+          act.activityType
+        )
+      ) {
+        type = act.activityType as ActivityType;
+      }
+
+      const leadFullName = act.lead?.fullName;
+      const leadCompanyName = act.lead?.companyName;
+      const leadName = leadFullName
+        ? `${leadFullName}${leadCompanyName ? ` (${leadCompanyName})` : ''}`
+        : leadCompanyName || undefined;
+
+      return {
+        id: act.id,
+        leadId: act.leadId || undefined,
+        leadName: leadName || undefined,
+        dealId: act.dealId || undefined,
+        dealTitle: act.deal?.title || undefined,
+        taskId: act.taskId || undefined,
+        taskTitle: act.task?.title || undefined,
+        type,
+        title: act.subject || 'Activity',
+        description: act.description || undefined,
+        direction: act.direction as ('INBOUND' | 'OUTBOUND') | undefined,
+        durationSeconds: act.durationSeconds || undefined,
+        outcome: act.outcome || undefined,
+        authorName: act.user?.name || 'Administrator',
+        createdAt: act.activityDate || act.createdAt || new Date().toISOString(),
+        metadata:
+          act.metadata && typeof act.metadata === 'object'
+            ? (act.metadata as Record<string, unknown>)
+            : act.durationSeconds || act.outcome
+            ? {
+                callOutcome: act.outcome,
+                callDuration: act.durationSeconds
+                  ? `${Math.floor(act.durationSeconds / 60)}m ${act.durationSeconds % 60}s`
+                  : undefined,
+                hasRecording: Boolean(act.durationSeconds),
+              }
+            : undefined,
+      };
+    });
+  }, [rawActivities]);
 
   // Calculate metrics
   const callCount = useMemo(() => activities.filter((a) => a.type === 'CALL').length, [activities]);
   const waCount = useMemo(() => activities.filter((a) => a.type === 'WHATSAPP').length, [activities]);
-  const stageChangeCount = useMemo(() => activities.filter((a) => a.type === 'STAGE_CHANGE').length, [activities]);
+  const stageChangeCount = useMemo(
+    () => activities.filter((a) => a.type === 'STAGE_CHANGE' || a.type === 'TASK').length,
+    [activities]
+  );
   const totalCount = activities.length;
 
   // Filter options for pills
@@ -82,7 +175,7 @@ export const ActivitiesPage: React.FC = () => {
       { id: 'ALL', label: 'All', count: totalCount },
       { id: 'CALL', label: 'Calls', count: callCount },
       { id: 'WHATSAPP', label: 'WhatsApp', count: waCount },
-      { id: 'STAGE_CHANGE', label: 'Stage Changes', count: stageChangeCount },
+      { id: 'STAGE_CHANGE', label: 'Stage / Tasks', count: stageChangeCount },
       { id: 'MEETING', label: 'Meetings', count: meetingCount },
       { id: 'EMAIL', label: 'Emails', count: emailCount },
       { id: 'NOTE', label: 'Notes', count: noteCount },
@@ -91,30 +184,36 @@ export const ActivitiesPage: React.FC = () => {
 
   // Unique prospects and authors
   const uniqueProspects = useMemo(() => {
-    return Array.from(new Set(activities.map((a) => a.leadName)));
+    return Array.from(new Set(activities.map((a) => a.leadName).filter(Boolean))) as string[];
   }, [activities]);
 
   const uniqueAuthors = useMemo(() => {
-    return Array.from(new Set(activities.map((a) => a.authorName)));
+    return Array.from(new Set(activities.map((a) => a.authorName).filter(Boolean)));
   }, [activities]);
 
   // Lead lookup helper for company name
   const leadCompanyMap = useMemo(() => {
     const map = new Map<string, string>();
-    MOCK_LEADS.forEach((l) => {
+    leads.forEach((l: any) => {
       if (l.companyName) {
         map.set(l.fullName, l.companyName);
         map.set(l.id, l.companyName);
       }
     });
     return map;
-  }, []);
+  }, [leads]);
 
   // Filtered activities
   const filteredActivities = useMemo(() => {
     return activities.filter((act) => {
       // Type filter
-      if (typeFilter !== 'ALL' && act.type !== typeFilter) return false;
+      if (typeFilter !== 'ALL') {
+        if (typeFilter === 'STAGE_CHANGE') {
+          if (act.type !== 'STAGE_CHANGE' && act.type !== 'TASK') return false;
+        } else if (act.type !== typeFilter) {
+          return false;
+        }
+      }
 
       // Prospect filter
       if (prospectFilter !== 'ALL' && act.leadName !== prospectFilter) return false;
@@ -127,7 +226,7 @@ export const ActivitiesPage: React.FC = () => {
         const query = searchQuery.toLowerCase();
         const matchesTitle = act.title.toLowerCase().includes(query);
         const matchesDesc = (act.description || '').toLowerCase().includes(query);
-        const matchesLead = act.leadName.toLowerCase().includes(query);
+        const matchesLead = (act.leadName || '').toLowerCase().includes(query);
         const matchesAuthor = act.authorName.toLowerCase().includes(query);
         if (!matchesTitle && !matchesDesc && !matchesLead && !matchesAuthor) {
           return false;
@@ -160,55 +259,84 @@ export const ActivitiesPage: React.FC = () => {
     setSearchQuery('');
   };
 
-  const isFiltered = typeFilter !== 'ALL' || prospectFilter !== 'ALL' || authorFilter !== 'ALL' || searchQuery.trim() !== '';
+  const isFiltered =
+    typeFilter !== 'ALL' || prospectFilter !== 'ALL' || authorFilter !== 'ALL' || searchQuery.trim() !== '';
 
-  const handleCreateActivity = (e: React.FormEvent) => {
+  const handleCreateActivity = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newActivityForm.title.trim()) return;
 
-    // Rule BR-COMM-02: Require duration and outcome for calls
-    let titleToSave = newActivityForm.title.trim();
-    if (newActivityForm.type === 'CALL') {
-      const durationPart = newActivityForm.callDuration.trim() ? ` (${newActivityForm.callDuration.trim()})` : '';
-      if (!titleToSave.toLowerCase().includes('call')) {
-        titleToSave = `Outbound Call ${newActivityForm.callOutcome}${durationPart}: ${titleToSave}`;
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      let titleToSave = newActivityForm.title.trim();
+      let durationSeconds: number | undefined;
+
+      if (newActivityForm.type === 'CALL') {
+        const durationPart = newActivityForm.callDuration.trim()
+          ? ` (${newActivityForm.callDuration.trim()})`
+          : '';
+        if (!titleToSave.toLowerCase().includes('call')) {
+          titleToSave = `Outbound Call ${newActivityForm.callOutcome}${durationPart}: ${titleToSave}`;
+        }
+
+        const match = newActivityForm.callDuration.match(/(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?/i);
+        if (match && (match[1] || match[2])) {
+          const mins = parseInt(match[1] || '0', 10);
+          const secs = parseInt(match[2] || '0', 10);
+          durationSeconds = mins * 60 + secs;
+        } else if (!isNaN(Number(newActivityForm.callDuration))) {
+          durationSeconds = Number(newActivityForm.callDuration);
+        }
       }
+
+      const backendActivityType = ['CALL', 'EMAIL', 'WHATSAPP', 'NOTE', 'MEETING', 'TASK', 'SYSTEM'].includes(
+        newActivityForm.type
+      )
+        ? (newActivityForm.type as any)
+        : 'NOTE';
+
+      const payload: CreateActivityPayload = {
+        activityType: backendActivityType,
+        direction: 'OUTBOUND',
+        subject: titleToSave,
+        description: newActivityForm.description.trim() || undefined,
+        outcome: newActivityForm.type === 'CALL' ? newActivityForm.callOutcome : undefined,
+        durationSeconds: durationSeconds || (newActivityForm.type === 'CALL' ? 615 : undefined),
+        leadId: newActivityForm.leadId || undefined,
+        metadata:
+          newActivityForm.type === 'CALL'
+            ? {
+                callOutcome: newActivityForm.callOutcome,
+                callDuration: newActivityForm.callDuration,
+                hasRecording: true,
+              }
+            : undefined,
+      };
+
+      await crmApi.createActivity(payload);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+      ]);
+
+      setIsLogModalOpen(false);
+      setNewActivityForm({
+        type: 'CALL',
+        leadId: '',
+        title: '',
+        description: '',
+        callOutcome: 'CONNECTED',
+        callDuration: '10m 15s',
+      });
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to log touchpoint. Please try again.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    const newActivity: ActivityItem = {
-      id: `act-${Date.now()}`,
-      leadId: newActivityForm.leadId,
-      leadName: newActivityForm.leadName,
-      type: newActivityForm.type,
-      title: titleToSave,
-      description: newActivityForm.description.trim() || undefined,
-      authorName: newActivityForm.authorName,
-      createdAt: new Date().toISOString(),
-      metadata:
-        newActivityForm.type === 'CALL'
-          ? {
-              callOutcome: newActivityForm.callOutcome,
-              callDuration: newActivityForm.callDuration,
-              hasRecording: true,
-            }
-          : undefined,
-    };
-
-    // Rule BR-COMM-01: Immutable append-only
-    setActivities([newActivity, ...activities]);
-    setIsLogModalOpen(false);
-
-    // Reset form
-    setNewActivityForm({
-      type: 'CALL',
-      leadId: MOCK_LEADS[0]?.id || 'lead-1',
-      leadName: MOCK_LEADS[0]?.fullName || 'Rohan Deshmukh',
-      title: '',
-      description: '',
-      callOutcome: 'CONNECTED',
-      callDuration: '10m 15s',
-      authorName: 'Arjun Verma',
-    });
   };
 
   const getActivityTypeConfig = (type: ActivityItem['type']) => {
@@ -237,6 +365,14 @@ export const ActivitiesPage: React.FC = () => {
           badgeVariant: 'info' as const,
           label: 'Stage Change',
         };
+      case 'TASK':
+        return {
+          icon: CheckCircle2,
+          iconColor: 'text-[#57B71B]',
+          bgColor: 'bg-[#F0FDF4] border-emerald-200/60',
+          badgeVariant: 'success' as const,
+          label: 'Task Completed',
+        };
       case 'MEETING':
         return {
           icon: Calendar,
@@ -253,6 +389,14 @@ export const ActivitiesPage: React.FC = () => {
           badgeVariant: 'info' as const,
           label: 'Email',
         };
+      case 'SYSTEM':
+        return {
+          icon: Activity,
+          iconColor: 'text-slate-600',
+          bgColor: 'bg-slate-50 border-slate-200',
+          badgeVariant: 'neutral' as const,
+          label: 'System Event',
+        };
       case 'NOTE':
       default:
         return {
@@ -264,6 +408,32 @@ export const ActivitiesPage: React.FC = () => {
         };
     }
   };
+
+  if (isActivitiesLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-[#57B71B]" />
+        <p className="text-sm text-txt-muted">Loading communication history...</p>
+      </div>
+    );
+  }
+
+  if (isActivitiesError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 p-6 text-center">
+        <AlertCircle className="h-10 w-10 text-red-500" />
+        <h3 className="text-base font-semibold text-txt-primary">Failed to load activities</h3>
+        <p className="text-xs text-txt-muted max-w-sm">
+          {activitiesError instanceof Error
+            ? activitiesError.message
+            : 'Network error loading activities from PostgreSQL backend.'}
+        </p>
+        <Button size="sm" onClick={() => refetchActivities()}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 select-none max-w-full">
@@ -314,9 +484,9 @@ export const ActivitiesPage: React.FC = () => {
           className={typeFilter === 'WHATSAPP' ? 'border-[#16A34A] ring-1 ring-[#16A34A]/30' : ''}
         />
         <MetricCard
-          label="Stage Changes"
+          label="Stage Changes / Tasks"
           value={stageChangeCount}
-          subtext="Pipeline transitions"
+          subtext="Pipeline & task updates"
           icon={ArrowRight}
           iconVariant="info"
           onClick={() => setTypeFilter('STAGE_CHANGE')}
@@ -379,11 +549,7 @@ export const ActivitiesPage: React.FC = () => {
         </div>
 
         {/* Bottom toolbar: Category Filter Pills */}
-        <FilterPills
-          options={filterOptions}
-          activeId={typeFilter}
-          onChange={setTypeFilter}
-        />
+        <FilterPills options={filterOptions} activeId={typeFilter} onChange={setTypeFilter} />
       </div>
 
       {/* 4. Chronological Timeline Feed */}
@@ -393,7 +559,7 @@ export const ActivitiesPage: React.FC = () => {
             icon={Activity}
             title="No activity records found"
             description="No logged touchpoints match your current filters. Try resetting or log a new interaction."
-            actionLabel={isFiltered ? "Reset filters" : "Log Interaction"}
+            actionLabel={isFiltered ? 'Reset filters' : 'Log Interaction'}
             onAction={isFiltered ? resetAllFilters : () => setIsLogModalOpen(true)}
           />
         </div>
@@ -414,7 +580,9 @@ export const ActivitiesPage: React.FC = () => {
                 {items.map((act) => {
                   const config = getActivityTypeConfig(act.type);
                   const Icon = config.icon;
-                  const companyName = leadCompanyMap.get(act.leadName) || leadCompanyMap.get(act.leadId);
+                  const companyName = act.leadName
+                    ? leadCompanyMap.get(act.leadName) || (act.leadId ? leadCompanyMap.get(act.leadId) : undefined)
+                    : undefined;
                   const isCall = act.type === 'CALL';
                   const isPlaying = playingActivityId === act.id;
 
@@ -428,11 +596,11 @@ export const ActivitiesPage: React.FC = () => {
                         <div className="flex items-start gap-2.5 min-w-0 flex-1">
                           <div
                             className={cn(
-                              "flex h-7 w-7 items-center justify-center rounded-btn border shrink-0 mt-0.5",
+                              'flex h-7 w-7 items-center justify-center rounded-btn border shrink-0 mt-0.5',
                               config.bgColor
                             )}
                           >
-                            <Icon className={cn("h-3.5 w-3.5", config.iconColor)} />
+                            <Icon className={cn('h-3.5 w-3.5', config.iconColor)} />
                           </div>
 
                           <div className="min-w-0 flex-1 space-y-0.5">
@@ -451,13 +619,20 @@ export const ActivitiesPage: React.FC = () => {
 
                             {/* Prospect context */}
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-txt-secondary">
-                              <Link
-                                to="/leads"
-                                className="flex items-center gap-1 truncate font-medium text-txt-primary hover:text-[#57B71B] transition-colors"
-                              >
-                                <User className="h-3 w-3 text-txt-muted shrink-0" />
-                                <span>{act.leadName}</span>
-                              </Link>
+                              {act.leadName ? (
+                                <Link
+                                  to="/leads"
+                                  className="flex items-center gap-1 truncate font-medium text-txt-primary hover:text-[#57B71B] transition-colors"
+                                >
+                                  <User className="h-3 w-3 text-txt-muted shrink-0" />
+                                  <span>{act.leadName}</span>
+                                </Link>
+                              ) : (
+                                <span className="flex items-center gap-1 text-txt-muted">
+                                  <Activity className="h-3 w-3 shrink-0" />
+                                  <span>General / System Activity</span>
+                                </span>
+                              )}
                               {companyName && (
                                 <span className="flex items-center gap-1 text-txt-muted truncate">
                                   <Building2 className="h-3 w-3 shrink-0" />
@@ -472,7 +647,10 @@ export const ActivitiesPage: React.FC = () => {
                         <div className="text-left sm:text-right shrink-0 pl-9 sm:pl-0">
                           <span className="text-[11px] font-semibold text-txt-muted tabular-nums flex items-center gap-1 sm:justify-end">
                             <Clock className="h-3 w-3 shrink-0" />
-                            {new Date(act.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {new Date(act.createdAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
                           </span>
                         </div>
                       </div>
@@ -492,20 +670,34 @@ export const ActivitiesPage: React.FC = () => {
                               type="button"
                               onClick={() => setPlayingActivityId(isPlaying ? null : act.id)}
                               className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16181B] text-white hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
-                              title={isPlaying ? "Pause Recording" : "Play Recording"}
+                              title={isPlaying ? 'Pause Recording' : 'Play Recording'}
                             >
                               {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 ml-0.5" />}
                             </button>
 
                             {/* Simulated waveform scrubber */}
                             <div className="flex-1 flex items-center gap-1 h-3">
-                              <div className={cn("h-1.5 rounded-full flex-1 transition-all", isPlaying ? "bg-[#57B71B]" : "bg-slate-200")}>
-                                <div className={cn("h-full bg-[#57B71B] rounded-full", isPlaying ? "w-2/3 animate-pulse" : "w-1/4")} />
+                              <div
+                                className={cn(
+                                  'h-1.5 rounded-full flex-1 transition-all',
+                                  isPlaying ? 'bg-[#57B71B]' : 'bg-slate-200'
+                                )}
+                              >
+                                <div
+                                  className={cn(
+                                    'h-full bg-[#57B71B] rounded-full',
+                                    isPlaying ? 'w-2/3 animate-pulse' : 'w-1/4'
+                                  )}
+                                />
                               </div>
                             </div>
 
                             <span className="text-[10px] font-semibold text-txt-muted tabular-nums shrink-0">
-                              {isPlaying ? "04:12 / 12:40" : "12m 40s"}
+                              {isPlaying
+                                ? '04:12 / 12:40'
+                                : act.durationSeconds
+                                ? `${Math.floor(act.durationSeconds / 60)}m ${act.durationSeconds % 60}s`
+                                : '10m 15s'}
                             </span>
                           </div>
                         </div>
@@ -516,19 +708,27 @@ export const ActivitiesPage: React.FC = () => {
                         <div className="flex items-center gap-1.5">
                           <Avatar className="h-4 w-4 text-[9px] bg-slate-200 text-txt-primary">
                             <AvatarFallback>
-                              {act.authorName.split(' ').map((n) => n[0]).join('').slice(0, 2)}
+                              {act.authorName
+                                .split(' ')
+                                .map((n) => n[0])
+                                .join('')
+                                .slice(0, 2)}
                             </AvatarFallback>
                           </Avatar>
-                          <span>Logged by <strong className="text-txt-primary font-medium">{act.authorName}</strong></span>
+                          <span>
+                            Logged by <strong className="text-txt-primary font-medium">{act.authorName}</strong>
+                          </span>
                         </div>
 
-                        <Link
-                          to="/leads"
-                          className="flex items-center gap-1 text-[11px] font-medium text-[#57B71B] hover:underline"
-                        >
-                          <span>View Prospect</span>
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
+                        {act.leadId && (
+                          <Link
+                            to="/leads"
+                            className="flex items-center gap-1 text-[11px] font-medium text-[#57B71B] hover:underline"
+                          >
+                            <span>View Prospect</span>
+                            <ExternalLink className="h-3 w-3" />
+                          </Link>
+                        )}
                       </div>
                     </div>
                   );
@@ -549,51 +749,49 @@ export const ActivitiesPage: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreateActivity} className="space-y-3 py-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Activity Type</label>
-                <select
-                  value={newActivityForm.type}
-                  onChange={(e) =>
-                    setNewActivityForm({ ...newActivityForm, type: e.target.value as ActivityType })
-                  }
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-                >
-                  <option value="CALL">Phone Call</option>
-                  <option value="WHATSAPP">WhatsApp</option>
-                  <option value="MEETING">Meeting / Demo</option>
-                  <option value="EMAIL">Email</option>
-                  <option value="NOTE">Internal Note</option>
-                </select>
-              </div>
+          {formError && (
+            <div className="p-2.5 text-xs bg-red-50 text-red-600 rounded-md border border-red-200 flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Related Prospect</label>
-                <select
-                  value={newActivityForm.leadId}
-                  onChange={(e) => {
-                    const lead = MOCK_LEADS.find((l) => l.id === e.target.value);
-                    setNewActivityForm({
-                      ...newActivityForm,
-                      leadId: e.target.value,
-                      leadName: lead?.fullName || 'Prospect',
-                    });
-                  }}
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-                >
-                  {MOCK_LEADS.map((lead) => (
-                    <option key={lead.id} value={lead.id}>
-                      {lead.fullName} {lead.companyName ? `(${lead.companyName})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
+          <form onSubmit={handleCreateActivity} className="space-y-3.5 py-1">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary">Interaction Modality</label>
+              <select
+                value={newActivityForm.type}
+                onChange={(e) =>
+                  setNewActivityForm({ ...newActivityForm, type: e.target.value as ActivityType })
+                }
+                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+              >
+                <option value="CALL">Phone Call</option>
+                <option value="WHATSAPP">WhatsApp Communication</option>
+                <option value="MEETING">Demo / Discovery Meeting</option>
+                <option value="EMAIL">Email Thread</option>
+                <option value="NOTE">Internal Team Note</option>
+              </select>
             </div>
 
-            {/* Rule BR-COMM-02: Mandatory Call Outcome & Duration for Phone Calls */}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary">Related Prospect / Lead</label>
+              <select
+                value={newActivityForm.leadId}
+                onChange={(e) => setNewActivityForm({ ...newActivityForm, leadId: e.target.value })}
+                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+              >
+                <option value="">None / General Touchpoint</option>
+                {leads.map((lead: any) => (
+                  <option key={lead.id} value={lead.id}>
+                    {lead.fullName} {lead.companyName ? `(${lead.companyName})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {newActivityForm.type === 'CALL' && (
-              <div className="grid grid-cols-2 gap-3 p-2.5 rounded-btn bg-[#F0FDF4] border border-emerald-200/60">
+              <div className="grid grid-cols-2 gap-3 p-2.5 rounded-btn bg-[#F0FDF4] border border-emerald-200/80">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-[#166534]">
                     Call Outcome <span className="text-red-500">*</span>
@@ -601,7 +799,10 @@ export const ActivitiesPage: React.FC = () => {
                   <select
                     value={newActivityForm.callOutcome}
                     onChange={(e) =>
-                      setNewActivityForm({ ...newActivityForm, callOutcome: e.target.value as CallOutcome })
+                      setNewActivityForm({
+                        ...newActivityForm,
+                        callOutcome: e.target.value as CallOutcome,
+                      })
                     }
                     className="w-full h-7 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
                   >
@@ -621,7 +822,9 @@ export const ActivitiesPage: React.FC = () => {
                     required
                     placeholder="e.g. 12m 40s"
                     value={newActivityForm.callDuration}
-                    onChange={(e) => setNewActivityForm({ ...newActivityForm, callDuration: e.target.value })}
+                    onChange={(e) =>
+                      setNewActivityForm({ ...newActivityForm, callDuration: e.target.value })
+                    }
                     className="w-full h-7 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
                   />
                 </div>
@@ -648,21 +851,21 @@ export const ActivitiesPage: React.FC = () => {
                 rows={3}
                 placeholder="Enter conversation highlights, client questions, or agreement notes..."
                 value={newActivityForm.description}
-                onChange={(e) => setNewActivityForm({ ...newActivityForm, description: e.target.value })}
+                onChange={(e) =>
+                  setNewActivityForm({ ...newActivityForm, description: e.target.value })
+                }
                 className="w-full p-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle resize-none"
               />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-txt-primary">Logged By</label>
-              <select
-                value={newActivityForm.authorName}
-                onChange={(e) => setNewActivityForm({ ...newActivityForm, authorName: e.target.value })}
-                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-              >
-                <option value="Arjun Verma">Arjun Verma</option>
-                <option value="Priya Sharma">Priya Sharma</option>
-              </select>
+              <input
+                type="text"
+                disabled
+                value={user?.name || 'Administrator'}
+                className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-slate-50 text-txt-secondary cursor-not-allowed shadow-subtle"
+              />
             </div>
 
             <DialogFooter className="pt-2">
@@ -672,6 +875,7 @@ export const ActivitiesPage: React.FC = () => {
                 size="sm"
                 onClick={() => setIsLogModalOpen(false)}
                 className="h-8 text-xs cursor-pointer"
+                disabled={isSubmitting}
               >
                 Cancel
               </Button>
@@ -679,8 +883,16 @@ export const ActivitiesPage: React.FC = () => {
                 type="submit"
                 size="sm"
                 className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                disabled={isSubmitting}
               >
-                Save Touchpoint
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Touchpoint'
+                )}
               </Button>
             </DialogFooter>
           </form>
@@ -695,12 +907,12 @@ export const ActivitiesPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <div
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-btn border shrink-0",
+                    'flex h-7 w-7 items-center justify-center rounded-btn border shrink-0',
                     getActivityTypeConfig(selectedActivity.type).bgColor
                   )}
                 >
                   {React.createElement(getActivityTypeConfig(selectedActivity.type).icon, {
-                    className: cn("h-3.5 w-3.5", getActivityTypeConfig(selectedActivity.type).iconColor),
+                    className: cn('h-3.5 w-3.5', getActivityTypeConfig(selectedActivity.type).iconColor),
                   })}
                 </div>
                 <div className="min-w-0">
@@ -718,7 +930,9 @@ export const ActivitiesPage: React.FC = () => {
               <div className="p-3 bg-slate-50 rounded-card border border-border space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-txt-muted font-medium">Prospect</span>
-                  <span className="font-semibold text-txt-primary">{selectedActivity.leadName}</span>
+                  <span className="font-semibold text-txt-primary">
+                    {selectedActivity.leadName || 'General'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-txt-muted font-medium">Activity Type</span>
@@ -730,7 +944,11 @@ export const ActivitiesPage: React.FC = () => {
                   <span className="text-txt-muted font-medium">Logged At</span>
                   <span className="font-semibold text-txt-primary tabular-nums">
                     {formatDate(selectedActivity.createdAt)} (
-                    {new Date(selectedActivity.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                    {new Date(selectedActivity.createdAt).toLocaleTimeString([], {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                    )
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -762,15 +980,17 @@ export const ActivitiesPage: React.FC = () => {
                 Close
               </Button>
 
-              <Button
-                size="sm"
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
-                asChild
-              >
-                <Link to="/leads" onClick={() => setSelectedActivity(null)}>
-                  View Prospect
-                </Link>
-              </Button>
+              {selectedActivity.leadId && (
+                <Button
+                  size="sm"
+                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                  asChild
+                >
+                  <Link to="/leads" onClick={() => setSelectedActivity(null)}>
+                    View Prospect
+                  </Link>
+                </Button>
+              )}
             </DialogFooter>
           </DialogContent>
         )}

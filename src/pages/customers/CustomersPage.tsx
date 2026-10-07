@@ -1,9 +1,11 @@
 import React, { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
 import { SearchInput } from '@/components/common/SearchInput';
 import { EmptyState } from '@/components/common/EmptyState';
 import { MetricCard } from '@/components/common/MetricCard';
+import { ActionMenu } from '@/components/common/ActionMenu';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,7 +18,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { formatCurrency } from '@/lib/utils';
+import { crmApi } from '@/lib/api';
+import { CustomerItem, CustomerStatus } from '@/types/crm';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   PlusCircle,
   Building2,
@@ -28,103 +32,158 @@ import {
   RotateCcw,
   Eye,
   FileCheck2,
+  Loader2,
+  AlertCircle,
+  Trash2,
+  Edit2,
 } from 'lucide-react';
 
-export type CustomerStatus = 'Active' | 'Inactive';
-
-export interface LinkedRecord {
-  type: 'PROPOSAL' | 'DEAL';
-  reference: string;
-  title: string;
-  amount: number;
-  status: string;
-}
-
-export interface CustomerItem {
-  id: string;
-  companyName: string;
-  contactName: string;
-  contactEmail?: string;
-  contactPhone?: string;
-  accountManager: string;
-  purchasedServices: string;
-  realizedRevenue: number;
-  status: CustomerStatus;
-  notes?: string;
-  linkedRecord?: LinkedRecord;
-}
-
-const INITIAL_CUSTOMERS: CustomerItem[] = [
-  {
-    id: 'cust-1',
-    companyName: 'OmniTech Solutions',
-    contactName: 'Suresh Mehta',
-    contactEmail: 'suresh@omnitech.in',
-    contactPhone: '+91 98200 11223',
-    accountManager: 'Vikram Malhotra',
-    purchasedServices: 'Custom CRM + Mobile App',
-    realizedRevenue: 1450000,
-    status: 'Active',
-    notes: 'Custom CRM system with mobile application deployment and team licensing.',
-  },
-  {
-    id: 'cust-2',
-    companyName: 'CloudScale Technologies',
-    contactName: 'Vikram Singhania',
-    contactEmail: 'vikram.s@cloudscale.tech',
-    contactPhone: '+91 98190 44321',
-    accountManager: 'Arjun Verma',
-    purchasedServices: 'Cloud Infrastructure & DevOps Migration',
-    realizedRevenue: 1200000,
-    status: 'Active',
-    notes: 'Cloud security audit, container orchestration, and automated deployment pipeline.',
-    linkedRecord: {
-      type: 'PROPOSAL',
-      reference: 'DTZ-2026-Q098',
-      title: 'Cloud Infrastructure Migration',
-      amount: 1200000,
-      status: 'ACCEPTED',
-    },
-  },
-];
-
 export const CustomersPage: React.FC = () => {
-  const [customers, setCustomers] = useState<CustomerItem[]>(INITIAL_CUSTOMERS);
+  const queryClient = useQueryClient();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
 
-  // Modals
+  // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerItem | null>(null);
+  const [editingCustomer, setEditingCustomer] = useState<CustomerItem | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Add form state
   const [formState, setFormState] = useState({
     companyName: '',
     contactName: '',
+    title: '',
     contactEmail: '',
     contactPhone: '',
-    accountManager: 'Vikram Malhotra',
-    purchasedServices: '',
-    realizedRevenue: '',
-    status: 'Active' as CustomerStatus,
+    status: 'ACTIVE' as CustomerStatus,
+    leadId: '',
+    dealId: '',
+    notes: '',
   });
+
+  // Edit form state
+  const [editFormState, setEditFormState] = useState({
+    companyName: '',
+    contactName: '',
+    title: '',
+    contactEmail: '',
+    contactPhone: '',
+    status: 'ACTIVE' as CustomerStatus,
+    notes: '',
+  });
+
+  // Real backend queries
+  const {
+    data: customersResponse,
+    isLoading: isCustomersLoading,
+    isError: isCustomersError,
+    error: customersError,
+    refetch: refetchCustomers,
+  } = useQuery({
+    queryKey: ['customers'],
+    queryFn: () => crmApi.getCustomers({ limit: 100 }),
+  });
+
+  const { data: leadsResponse } = useQuery({
+    queryKey: ['leads'],
+    queryFn: () => crmApi.getLeads({ limit: 100 }),
+  });
+
+  const { data: dealsResponse } = useQuery({
+    queryKey: ['deals'],
+    queryFn: () => crmApi.getDeals({ limit: 100 }),
+  });
+
+  // Extract raw lists
+  const rawCustomers = useMemo(() => {
+    return (
+      customersResponse?.data ||
+      customersResponse?.items ||
+      (Array.isArray(customersResponse) ? customersResponse : [])
+    );
+  }, [customersResponse]);
+
+  const leads = useMemo(() => {
+    return (
+      leadsResponse?.items ||
+      leadsResponse?.leads ||
+      (Array.isArray(leadsResponse?.data) ? leadsResponse?.data : leadsResponse?.data?.items) ||
+      []
+    );
+  }, [leadsResponse]);
+
+  const deals = useMemo(() => {
+    return (
+      dealsResponse?.deals ||
+      dealsResponse?.data ||
+      (Array.isArray(dealsResponse) ? dealsResponse : [])
+    );
+  }, [dealsResponse]);
+
+  // Map Backend customer records to CustomerItem models
+  const customers: CustomerItem[] = useMemo(() => {
+    return rawCustomers.map((c: any) => {
+      let status: CustomerStatus = 'ACTIVE';
+      const upperStatus = String(c.status || '').toUpperCase();
+      if (['ACTIVE', 'INACTIVE', 'AT_RISK', 'CHURNED'].includes(upperStatus)) {
+        status = upperStatus as CustomerStatus;
+      }
+
+      return {
+        id: c.id,
+        organizationId: c.organizationId,
+        leadId: c.leadId,
+        dealId: c.dealId,
+        companyName: c.companyName || 'Unnamed Company',
+        contactName: c.contactName || 'Primary Contact',
+        title: c.title || undefined,
+        phone: c.phone || '—',
+        email: c.email || '—',
+        address: c.address || undefined,
+        city: c.city || undefined,
+        state: c.state || undefined,
+        postalCode: c.postalCode || undefined,
+        country: c.country || 'India',
+        status,
+        ownerId: c.ownerId,
+        customerSince: c.customerSince,
+        notes: c.notes || undefined,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+        owner: c.owner,
+        lead: c.lead,
+        deal: c.deal,
+        accountManager: c.owner?.name || 'Assigned Manager',
+        purchasedServices: c.notes || (c.deal?.title ? `Deal: ${c.deal.title}` : 'Standard Account SLA'),
+        contactEmail: c.email,
+        contactPhone: c.phone,
+      };
+    });
+  }, [rawCustomers]);
 
   // Unique owners for filter
   const ownerOptions = useMemo(() => {
-    return Array.from(new Set(customers.map((c) => c.accountManager)));
+    return Array.from(new Set(customers.map((c) => c.accountManager).filter(Boolean)));
   }, [customers]);
 
   // Status Filter Options for FilterPills
   const statusFilterOptions: FilterOption[] = useMemo(() => {
     const totalCount = customers.length;
-    const activeCount = customers.filter((c) => c.status === 'Active').length;
-    const inactiveCount = customers.filter((c) => c.status === 'Inactive').length;
+    const activeCount = customers.filter((c) => c.status === 'ACTIVE' || c.status === 'Active').length;
+    const inactiveCount = customers.filter((c) => c.status === 'INACTIVE' || c.status === 'Inactive').length;
+    const atRiskCount = customers.filter((c) => c.status === 'AT_RISK').length;
+    const churnedCount = customers.filter((c) => c.status === 'CHURNED').length;
 
     return [
       { id: 'ALL', label: 'All Accounts', count: totalCount },
-      { id: 'Active', label: 'Active', count: activeCount },
-      { id: 'Inactive', label: 'Inactive', count: inactiveCount },
+      { id: 'ACTIVE', label: 'Active', count: activeCount },
+      { id: 'INACTIVE', label: 'Inactive', count: inactiveCount },
+      ...(atRiskCount > 0 ? [{ id: 'AT_RISK', label: 'At Risk', count: atRiskCount, countVariant: 'warning' as const }] : []),
+      ...(churnedCount > 0 ? [{ id: 'CHURNED', label: 'Churned', count: churnedCount, countVariant: 'danger' as const }] : []),
     ];
   }, [customers]);
 
@@ -136,15 +195,19 @@ export const CustomersPage: React.FC = () => {
         const query = searchQuery.toLowerCase();
         const matchesCompany = customer.companyName.toLowerCase().includes(query);
         const matchesContact = customer.contactName.toLowerCase().includes(query);
-        const matchesService = customer.purchasedServices.toLowerCase().includes(query);
-        if (!matchesCompany && !matchesContact && !matchesService) {
+        const matchesService = (customer.purchasedServices || '').toLowerCase().includes(query);
+        const matchesEmail = (customer.email || '').toLowerCase().includes(query);
+        const matchesPhone = (customer.phone || '').toLowerCase().includes(query);
+        if (!matchesCompany && !matchesContact && !matchesService && !matchesEmail && !matchesPhone) {
           return false;
         }
       }
 
       // Status
-      if (statusFilter !== 'ALL' && customer.status !== statusFilter) {
-        return false;
+      if (statusFilter !== 'ALL') {
+        const cStatus = customer.status.toUpperCase();
+        const fStatus = statusFilter.toUpperCase();
+        if (cStatus !== fStatus) return false;
       }
 
       // Owner
@@ -156,15 +219,9 @@ export const CustomersPage: React.FC = () => {
     });
   }, [customers, searchQuery, statusFilter, ownerFilter]);
 
-  // Derived metrics from verified data
+  // Derived metrics
   const activeCount = useMemo(() => {
-    return customers.filter((c) => c.status === 'Active').length;
-  }, [customers]);
-
-  const totalRealizedRevenue = useMemo(() => {
-    return customers
-      .filter((c) => c.status === 'Active')
-      .reduce((acc, c) => acc + c.realizedRevenue, 0);
+    return customers.filter((c) => c.status === 'ACTIVE' || c.status === 'Active').length;
   }, [customers]);
 
   const handleResetFilters = () => {
@@ -173,40 +230,130 @@ export const CustomersPage: React.FC = () => {
     setOwnerFilter('ALL');
   };
 
-  const handleAddCustomerSubmit = (e: React.FormEvent) => {
+  const getStatusBadge = (status: CustomerStatus) => {
+    const normalized = status.toUpperCase();
+    switch (normalized) {
+      case 'ACTIVE':
+        return <Badge variant="success">Active</Badge>;
+      case 'INACTIVE':
+        return <Badge variant="neutral">Inactive</Badge>;
+      case 'AT_RISK':
+        return <Badge variant="warning">At Risk</Badge>;
+      case 'CHURNED':
+        return <Badge variant="danger">Churned</Badge>;
+      default:
+        return <Badge variant="neutral">{status}</Badge>;
+    }
+  };
+
+  // Add Customer submit handler
+  const handleAddCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formState.companyName.trim() || !formState.contactName.trim() || !formState.purchasedServices.trim()) {
+    if (!formState.companyName.trim() || !formState.contactName.trim() || !formState.contactEmail.trim() || !formState.contactPhone.trim()) {
+      setFormError('Please fill in all required fields.');
       return;
     }
 
-    const newCustomer: CustomerItem = {
-      id: `cust-${Date.now()}`,
-      companyName: formState.companyName.trim(),
-      contactName: formState.contactName.trim(),
-      contactEmail: formState.contactEmail.trim() || undefined,
-      contactPhone: formState.contactPhone.trim() || undefined,
-      accountManager: formState.accountManager,
-      purchasedServices: formState.purchasedServices.trim(),
-      realizedRevenue: Number(formState.realizedRevenue) || 0,
-      status: formState.status,
-    };
+    setIsSubmitting(true);
+    setFormError(null);
 
-    setCustomers((prev) => [newCustomer, ...prev]);
-    setIsAddModalOpen(false);
-    setFormState({
-      companyName: '',
-      contactName: '',
-      contactEmail: '',
-      contactPhone: '',
-      accountManager: 'Vikram Malhotra',
-      purchasedServices: '',
-      realizedRevenue: '',
-      status: 'Active',
+    try {
+      await crmApi.createCustomer({
+        companyName: formState.companyName.trim(),
+        contactName: formState.contactName.trim(),
+        title: formState.title.trim() || undefined,
+        email: formState.contactEmail.trim().toLowerCase(),
+        phone: formState.contactPhone.trim(),
+        status: formState.status,
+        leadId: formState.leadId || undefined,
+        dealId: formState.dealId || undefined,
+        notes: formState.notes.trim() || undefined,
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+
+      setIsAddModalOpen(false);
+      setFormState({
+        companyName: '',
+        contactName: '',
+        title: '',
+        contactEmail: '',
+        contactPhone: '',
+        status: 'ACTIVE',
+        leadId: '',
+        dealId: '',
+        notes: '',
+      });
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to create customer account');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Edit Customer setup & submit handler
+  const handleOpenEdit = (customer: CustomerItem) => {
+    setEditingCustomer(customer);
+    setEditFormState({
+      companyName: customer.companyName,
+      contactName: customer.contactName,
+      title: customer.title || '',
+      contactEmail: customer.email,
+      contactPhone: customer.phone,
+      status: customer.status,
+      notes: customer.notes || '',
     });
+    setFormError(null);
+  };
+
+  const handleEditCustomerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer) return;
+
+    setIsSubmitting(true);
+    setFormError(null);
+
+    try {
+      await crmApi.updateCustomer(editingCustomer.id, {
+        companyName: editFormState.companyName.trim(),
+        contactName: editFormState.contactName.trim(),
+        title: editFormState.title.trim() || undefined,
+        email: editFormState.contactEmail.trim().toLowerCase(),
+        phone: editFormState.contactPhone.trim(),
+        status: editFormState.status,
+        notes: editFormState.notes.trim() || undefined,
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setEditingCustomer(null);
+      if (selectedCustomer?.id === editingCustomer.id) {
+        setSelectedCustomer(null);
+      }
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to update customer account');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Delete Customer handler
+  const handleDeleteCustomer = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this customer account?')) return;
+
+    try {
+      await crmApi.deleteCustomer(id);
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      if (selectedCustomer?.id === id) {
+        setSelectedCustomer(null);
+      }
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete customer');
+    }
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 select-none max-w-full">
       {/* Header */}
       <PageHeader
         title="Customers"
@@ -214,7 +361,10 @@ export const CustomersPage: React.FC = () => {
         actions={
           <Button
             size="sm"
-            onClick={() => setIsAddModalOpen(true)}
+            onClick={() => {
+              setFormError(null);
+              setIsAddModalOpen(true);
+            }}
             className="h-8 px-3 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer shrink-0"
           >
             <PlusCircle className="mr-1.5 h-3.5 w-3.5" /> Add Customer
@@ -234,11 +384,11 @@ export const CustomersPage: React.FC = () => {
         />
         <MetricCard
           label="Realized Revenue"
-          value={formatCurrency(totalRealizedRevenue)}
-          subtext="Total realized contract value"
-          subtextVariant="success"
+          value="—"
+          subtext="Neutral state — not tracked in customer profile"
+          subtextVariant="neutral"
           icon={TrendingUp}
-          iconVariant="success"
+          iconVariant="neutral"
         />
       </div>
 
@@ -291,8 +441,27 @@ export const CustomersPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Loading & Error States */}
+      {isCustomersLoading && (
+        <div className="p-12 bg-white rounded-card border border-border flex flex-col items-center justify-center gap-3">
+          <Loader2 className="h-8 w-8 text-[#57B71B] animate-spin" />
+          <p className="text-xs text-txt-muted">Loading customer accounts from server...</p>
+        </div>
+      )}
+
+      {isCustomersError && (
+        <div className="p-8 bg-red-50/50 rounded-card border border-red-200 flex flex-col items-center justify-center gap-3 text-center">
+          <AlertCircle className="h-8 w-8 text-red-600" />
+          <p className="text-sm font-semibold text-red-900">Failed to load customer accounts</p>
+          <p className="text-xs text-red-700 max-w-md">{(customersError as any)?.message || 'An error occurred while fetching customer directory.'}</p>
+          <Button size="sm" variant="outline" onClick={() => refetchCustomers()} className="h-8 text-xs">
+            Retry Connection
+          </Button>
+        </div>
+      )}
+
       {/* Main Content: Table on Desktop, Stacked Cards on Mobile */}
-      {filteredCustomers.length === 0 ? (
+      {!isCustomersLoading && !isCustomersError && filteredCustomers.length === 0 ? (
         <EmptyState
           icon={Building2}
           title="No customers found"
@@ -300,7 +469,7 @@ export const CustomersPage: React.FC = () => {
           actionLabel="Reset Filters"
           onAction={handleResetFilters}
         />
-      ) : (
+      ) : !isCustomersLoading && !isCustomersError && (
         <>
           {/* Desktop Table View */}
           <div className="hidden md:block rounded-card border border-border bg-white shadow-card overflow-x-auto">
@@ -310,15 +479,15 @@ export const CustomersPage: React.FC = () => {
                   <TableHead className="w-[200px]">Company</TableHead>
                   <TableHead className="w-[180px]">Primary Contact</TableHead>
                   <TableHead className="w-[150px]">Account Manager</TableHead>
-                  <TableHead>Purchased Services</TableHead>
+                  <TableHead>Purchased Services / Notes</TableHead>
                   <TableHead className="w-[140px] text-right">Realized Revenue</TableHead>
                   <TableHead className="w-[90px] text-center">Status</TableHead>
-                  <TableHead className="w-[110px] text-right">Action</TableHead>
+                  <TableHead className="w-[120px] text-right">Action</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredCustomers.map((customer) => (
-                  <TableRow key={customer.id}>
+                  <TableRow key={customer.id} className="hover:bg-slate-50/80 transition-colors">
                     <TableCell className="font-semibold text-xs text-txt-primary">
                       <div className="flex items-center gap-2">
                         <Building2 className="h-3.5 w-3.5 text-txt-muted shrink-0" />
@@ -344,24 +513,44 @@ export const CustomersPage: React.FC = () => {
                     <TableCell className="text-xs text-txt-primary">
                       <span className="line-clamp-2">{customer.purchasedServices}</span>
                     </TableCell>
-                    <TableCell className="font-bold text-xs text-[#16A34A] text-right tabular-nums">
-                      {formatCurrency(customer.realizedRevenue)}
+                    <TableCell className="font-medium text-xs text-txt-muted text-right tabular-nums">
+                      {customer.deal?.value ? formatCurrency(customer.deal.value) : '—'}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant={customer.status === 'Active' ? 'success' : 'neutral'}>
-                        {customer.status}
-                      </Badge>
+                      {getStatusBadge(customer.status)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedCustomer(customer)}
-                        className="h-7 text-xs px-2 text-txt-secondary hover:text-txt-primary hover:bg-slate-50"
-                      >
-                        <Eye className="h-3.5 w-3.5 mr-1" />
-                        Account 360
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedCustomer(customer)}
+                          className="h-7 text-xs px-2 text-txt-secondary hover:text-txt-primary hover:bg-slate-50 cursor-pointer"
+                        >
+                          <Eye className="h-3.5 w-3.5 mr-1" />
+                          360
+                        </Button>
+                        <ActionMenu
+                          items={[
+                            {
+                              label: 'View Account 360',
+                              icon: Eye,
+                              onClick: () => setSelectedCustomer(customer),
+                            },
+                            {
+                              label: 'Edit Account',
+                              icon: Edit2,
+                              onClick: () => handleOpenEdit(customer),
+                            },
+                            {
+                              label: 'Delete Customer',
+                              icon: Trash2,
+                              variant: 'danger' as const,
+                              onClick: () => handleDeleteCustomer(customer.id),
+                            },
+                          ]}
+                        />
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -383,9 +572,7 @@ export const CustomersPage: React.FC = () => {
                       {customer.companyName}
                     </span>
                   </div>
-                  <Badge variant={customer.status === 'Active' ? 'success' : 'neutral'}>
-                    {customer.status}
-                  </Badge>
+                  {getStatusBadge(customer.status)}
                 </div>
 
                 <div className="space-y-1.5 text-xs border-t border-border/50 pt-2.5">
@@ -423,20 +610,30 @@ export const CustomersPage: React.FC = () => {
 
                   <div className="flex items-center justify-between pt-1 border-t border-border/50">
                     <span className="text-txt-muted">Realized Revenue</span>
-                    <span className="font-bold text-xs text-[#16A34A] tabular-nums">
-                      {formatCurrency(customer.realizedRevenue)}
+                    <span className="font-medium text-xs text-txt-muted tabular-nums">
+                      {customer.deal?.value ? formatCurrency(customer.deal.value) : '—'}
                     </span>
                   </div>
                 </div>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSelectedCustomer(customer)}
-                  className="w-full h-8 text-xs font-medium"
-                >
-                  <Eye className="h-3.5 w-3.5 mr-1.5" /> View Account 360
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedCustomer(customer)}
+                    className="flex-1 h-8 text-xs font-medium cursor-pointer"
+                  >
+                    <Eye className="h-3.5 w-3.5 mr-1.5" /> View Account 360
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleOpenEdit(customer)}
+                    className="h-8 px-2 text-xs font-medium cursor-pointer"
+                  >
+                    <Edit2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -459,9 +656,7 @@ export const CustomersPage: React.FC = () => {
                       Account 360 Profile & Overview
                     </DialogDescription>
                   </div>
-                  <Badge variant={selectedCustomer.status === 'Active' ? 'success' : 'neutral'}>
-                    {selectedCustomer.status}
-                  </Badge>
+                  {getStatusBadge(selectedCustomer.status)}
                 </div>
               </DialogHeader>
 
@@ -474,9 +669,9 @@ export const CustomersPage: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] font-medium text-txt-muted">Realized Revenue</div>
-                  <div className="font-bold text-[#16A34A] tabular-nums mt-0.5">
-                    {formatCurrency(selectedCustomer.realizedRevenue)}
+                  <div className="text-[11px] font-medium text-txt-muted">Customer Since</div>
+                  <div className="font-semibold text-txt-primary mt-0.5">
+                    {selectedCustomer.customerSince ? formatDate(selectedCustomer.customerSince) : '—'}
                   </div>
                 </div>
               </div>
@@ -491,6 +686,12 @@ export const CustomersPage: React.FC = () => {
                     <span className="text-txt-muted">Full Name</span>
                     <span className="font-medium text-txt-primary">{selectedCustomer.contactName}</span>
                   </div>
+                  {selectedCustomer.title && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-txt-muted">Designation</span>
+                      <span className="font-medium text-txt-primary">{selectedCustomer.title}</span>
+                    </div>
+                  )}
                   {selectedCustomer.contactEmail && (
                     <div className="flex items-center justify-between">
                       <span className="text-txt-muted flex items-center gap-1">
@@ -514,10 +715,10 @@ export const CustomersPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Purchased Services */}
+              {/* Services & Notes */}
               <div className="space-y-2 border-t border-border pt-3">
                 <div className="text-xs font-semibold text-txt-primary flex items-center gap-1.5">
-                  <Briefcase className="h-3.5 w-3.5 text-txt-muted" /> Purchased Services
+                  <Briefcase className="h-3.5 w-3.5 text-txt-muted" /> Services & SLA Notes
                 </div>
                 <div className="p-3 bg-white rounded-card border border-border space-y-1 text-xs">
                   <div className="font-medium text-txt-primary">
@@ -536,25 +737,38 @@ export const CustomersPage: React.FC = () => {
                 <div className="text-xs font-semibold text-txt-primary flex items-center gap-1.5">
                   <FileCheck2 className="h-3.5 w-3.5 text-txt-muted" /> Linked CRM Records
                 </div>
-                {selectedCustomer.linkedRecord ? (
+                {selectedCustomer.deal ? (
                   <div className="p-3 bg-[#F0FDF4] rounded-card border border-[#BBF7D0] flex items-center justify-between text-xs">
                     <div className="space-y-0.5">
                       <div className="font-semibold text-txt-primary flex items-center gap-1.5">
                         <Badge variant="success" className="text-[10px] px-1.5 py-0">
-                          {selectedCustomer.linkedRecord.type}
+                          DEAL
                         </Badge>
-                        <span>{selectedCustomer.linkedRecord.reference}</span>
+                        <span>{selectedCustomer.deal.title}</span>
                       </div>
                       <div className="text-[11px] text-txt-secondary">
-                        {selectedCustomer.linkedRecord.title}
+                        Associated commercial deal
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-bold text-xs text-[#16A34A] tabular-nums">
-                        {formatCurrency(selectedCustomer.linkedRecord.amount)}
+                    {selectedCustomer.deal.value !== undefined && (
+                      <div className="text-right">
+                        <div className="font-bold text-xs text-[#16A34A] tabular-nums">
+                          {formatCurrency(selectedCustomer.deal.value)}
+                        </div>
                       </div>
-                      <div className="text-[10px] font-semibold text-[#16A34A] uppercase">
-                        {selectedCustomer.linkedRecord.status}
+                    )}
+                  </div>
+                ) : selectedCustomer.lead ? (
+                  <div className="p-3 bg-slate-50 rounded-card border border-border flex items-center justify-between text-xs">
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-txt-primary flex items-center gap-1.5">
+                        <Badge variant="neutral" className="text-[10px] px-1.5 py-0">
+                          LEAD
+                        </Badge>
+                        <span>{selectedCustomer.lead.fullName}</span>
+                      </div>
+                      <div className="text-[11px] text-txt-muted">
+                        Converted from prospect lead
                       </div>
                     </div>
                   </div>
@@ -565,15 +779,39 @@ export const CustomersPage: React.FC = () => {
                 )}
               </div>
 
-              <DialogFooter className="pt-2 border-t border-border">
+              <DialogFooter className="flex-row justify-between items-center pt-2 border-t border-border">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setSelectedCustomer(null)}
-                  className="h-8 text-xs font-medium"
+                  className="h-8 text-xs font-medium cursor-pointer"
                 >
                   Close
                 </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const c = selectedCustomer;
+                      setSelectedCustomer(null);
+                      handleOpenEdit(c);
+                    }}
+                    className="h-8 text-xs font-medium cursor-pointer"
+                  >
+                    <Edit2 className="h-3 w-3 mr-1" />
+                    Edit Account
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => handleDeleteCustomer(selectedCustomer.id)}
+                    className="h-8 text-xs font-medium cursor-pointer bg-red-600 hover:bg-red-700 text-white"
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Delete
+                  </Button>
+                </div>
               </DialogFooter>
             </div>
           )}
@@ -591,6 +829,13 @@ export const CustomersPage: React.FC = () => {
               Record a new customer account in the CRM directory.
             </DialogDescription>
           </DialogHeader>
+
+          {formError && (
+            <div className="p-2.5 rounded-btn bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
 
           <form onSubmit={handleAddCustomerSubmit} className="space-y-3.5 pt-1">
             <div className="space-y-1">
@@ -621,74 +866,84 @@ export const CustomersPage: React.FC = () => {
               </div>
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                  Contact Email
+                  Job Title / Designation
+                </label>
+                <Input
+                  value={formState.title}
+                  onChange={(e) => setFormState({ ...formState, title: e.target.value })}
+                  placeholder="e.g. VP Operations"
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Contact Email *
                 </label>
                 <Input
                   type="email"
+                  required
                   value={formState.contactEmail}
                   onChange={(e) => setFormState({ ...formState, contactEmail: e.target.value })}
                   placeholder="rahul@acme.com"
                   className="h-8 text-xs"
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                  Contact Phone
+                  Contact Phone *
                 </label>
                 <Input
+                  required
                   value={formState.contactPhone}
                   onChange={(e) => setFormState({ ...formState, contactPhone: e.target.value })}
                   placeholder="+91 98000 00000"
                   className="h-8 text-xs"
                 />
               </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                  Account Manager
-                </label>
-                <select
-                  value={formState.accountManager}
-                  onChange={(e) => setFormState({ ...formState, accountManager: e.target.value })}
-                  className="w-full h-8 rounded-button border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
-                >
-                  <option value="Vikram Malhotra">Vikram Malhotra</option>
-                  <option value="Arjun Verma">Arjun Verma</option>
-                  <option value="Priya Sharma">Priya Sharma</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                Purchased Services *
-              </label>
-              <Input
-                required
-                value={formState.purchasedServices}
-                onChange={(e) => setFormState({ ...formState, purchasedServices: e.target.value })}
-                placeholder="e.g. Custom Web App + Annual Maintenance"
-                className="h-8 text-xs"
-              />
             </div>
 
             <div className="grid grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                  Realized Revenue (₹)
+                  Source Lead
                 </label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="1000"
-                  value={formState.realizedRevenue}
-                  onChange={(e) => setFormState({ ...formState, realizedRevenue: e.target.value })}
-                  placeholder="500000"
-                  className="h-8 text-xs tabular-nums"
-                />
+                <select
+                  value={formState.leadId}
+                  onChange={(e) => setFormState({ ...formState, leadId: e.target.value })}
+                  className="w-full h-8 rounded-button border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                >
+                  <option value="">None / Direct</option>
+                  {leads.map((l: any) => (
+                    <option key={l.id} value={l.id}>
+                      {l.companyName || l.fullName}
+                    </option>
+                  ))}
+                </select>
               </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Linked Deal
+                </label>
+                <select
+                  value={formState.dealId}
+                  onChange={(e) => setFormState({ ...formState, dealId: e.target.value })}
+                  className="w-full h-8 rounded-button border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                >
+                  <option value="">None</option>
+                  {deals.map((d: any) => (
+                    <option key={d.id} value={d.id}>
+                      {d.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
                   Status
@@ -698,9 +953,23 @@ export const CustomersPage: React.FC = () => {
                   onChange={(e) => setFormState({ ...formState, status: e.target.value as CustomerStatus })}
                   className="w-full h-8 rounded-button border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
                 >
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="AT_RISK">At Risk</option>
+                  <option value="CHURNED">Churned</option>
                 </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Purchased Services / Notes
+                </label>
+                <Input
+                  value={formState.notes}
+                  onChange={(e) => setFormState({ ...formState, notes: e.target.value })}
+                  placeholder="e.g. Custom Web App SLA"
+                  className="h-8 text-xs"
+                />
               </div>
             </div>
 
@@ -711,15 +980,164 @@ export const CustomersPage: React.FC = () => {
                 size="sm"
                 onClick={() => setIsAddModalOpen(false)}
                 className="h-8 text-xs font-medium cursor-pointer"
+                disabled={isSubmitting}
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
                 size="sm"
+                disabled={isSubmitting}
                 className="bg-[#57B71B] hover:bg-[#469815] text-white h-8 text-xs font-semibold px-3 rounded-button cursor-pointer"
               >
-                Save Customer
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Saving...
+                  </>
+                ) : (
+                  'Save Customer'
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Customer Modal */}
+      <Dialog open={!!editingCustomer} onOpenChange={(open) => !open && setEditingCustomer(null)}>
+        <DialogContent className="max-w-md w-full p-5">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-txt-primary flex items-center gap-2">
+              <Edit2 className="h-4 w-4 text-[#57B71B]" /> Edit Customer Account
+            </DialogTitle>
+            <DialogDescription className="text-xs text-txt-muted">
+              Update organization profile, primary contact, or account status.
+            </DialogDescription>
+          </DialogHeader>
+
+          {formError && (
+            <div className="p-2.5 rounded-btn bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleEditCustomerSubmit} className="space-y-3.5 pt-1">
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                Company Name *
+              </label>
+              <Input
+                required
+                value={editFormState.companyName}
+                onChange={(e) => setEditFormState({ ...editFormState, companyName: e.target.value })}
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Contact Person *
+                </label>
+                <Input
+                  required
+                  value={editFormState.contactName}
+                  onChange={(e) => setEditFormState({ ...editFormState, contactName: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Job Title
+                </label>
+                <Input
+                  value={editFormState.title}
+                  onChange={(e) => setEditFormState({ ...editFormState, title: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Email *
+                </label>
+                <Input
+                  type="email"
+                  required
+                  value={editFormState.contactEmail}
+                  onChange={(e) => setEditFormState({ ...editFormState, contactEmail: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Phone *
+                </label>
+                <Input
+                  required
+                  value={editFormState.contactPhone}
+                  onChange={(e) => setEditFormState({ ...editFormState, contactPhone: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Status
+                </label>
+                <select
+                  value={editFormState.status}
+                  onChange={(e) => setEditFormState({ ...editFormState, status: e.target.value as CustomerStatus })}
+                  className="w-full h-8 rounded-button border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                  <option value="AT_RISK">At Risk</option>
+                  <option value="CHURNED">Churned</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                  Services / Notes
+                </label>
+                <Input
+                  value={editFormState.notes}
+                  onChange={(e) => setEditFormState({ ...editFormState, notes: e.target.value })}
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2 border-t border-border">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setEditingCustomer(null)}
+                className="h-8 text-xs font-medium cursor-pointer"
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting}
+                className="bg-[#57B71B] hover:bg-[#469815] text-white h-8 text-xs font-semibold px-3 rounded-button cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
               </Button>
             </DialogFooter>
           </form>

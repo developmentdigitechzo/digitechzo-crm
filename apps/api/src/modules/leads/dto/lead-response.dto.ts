@@ -71,8 +71,8 @@ export class LeadResponseDto {
   @ApiProperty({ description: 'Contact phone number' })
   phone: string;
 
-  @ApiProperty({ description: 'Contact email address' })
-  email: string;
+  @ApiPropertyOptional({ description: 'Contact email address' })
+  email?: string | null;
 
   @ApiProperty({ description: 'Lead acquisition source' })
   source: string;

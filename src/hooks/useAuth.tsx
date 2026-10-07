@@ -1,17 +1,15 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User, AuthSession, UserRole } from '@/types/auth';
-import { mockAuthService, MOCK_USERS } from '@/mocks/mockAuth';
+import { authApi, authStorage } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
   session: AuthSession | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string) => void;
-  logout: () => void;
-  switchUser: (userId: string) => void;
+  login: (email: string, password?: string) => Promise<void>;
+  logout: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
-  allMockUsers: User[];
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,26 +19,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const current = mockAuthService.getCurrentSession();
-    setSession(current);
+    // Check localStorage for existing valid session on startup
+    const existing = authStorage.getSession();
+    if (existing && existing.user && existing.accessToken) {
+      // Check if access token is expired
+      const isExpired = existing.expiresAt
+        ? new Date(existing.expiresAt).getTime() < Date.now()
+        : false;
+
+      if (!isExpired) {
+        setSession(existing);
+      } else if (existing.refreshToken) {
+        // Token expired but refreshToken exists; apiFetch will refresh on demand
+        setSession(existing);
+      } else {
+        authStorage.clearSession();
+        setSession(null);
+      }
+    } else {
+      setSession(null);
+    }
     setIsLoading(false);
   }, []);
 
-  const login = (email: string) => {
-    const newSession = mockAuthService.login(email);
+  const login = async (email: string, password = '') => {
+    const newSession = await authApi.login(email, password);
     setSession(newSession);
   };
 
-  const logout = () => {
-    mockAuthService.logout();
+  const logout = async () => {
+    await authApi.logout();
     setSession(null);
-  };
-
-  const switchUser = (userId: string) => {
-    const newSession = mockAuthService.switchUser(userId);
-    if (newSession) {
-      setSession(newSession);
-    }
   };
 
   const hasRole = (roles: UserRole[]): boolean => {
@@ -57,9 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         login,
         logout,
-        switchUser,
         hasRole,
-        allMockUsers: MOCK_USERS,
       }}
     >
       {children}

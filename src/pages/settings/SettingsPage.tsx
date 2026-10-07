@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MOCK_PIPELINE_STAGES, MOCK_DEALS } from '@/mocks/mockData';
+import { authApi, crmApi } from '@/lib/api';
 import {
   Sliders,
   Building2,
   Tags,
   Cpu,
-  CheckCircle2,
   ShieldAlert,
   Globe2,
   Layers,
@@ -19,6 +19,10 @@ import {
   Phone,
   MessageSquare,
   HardDrive,
+  RotateCcw,
+  Loader2,
+  AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 
 const SETTINGS_TABS: FilterOption[] = [
@@ -26,24 +30,6 @@ const SETTINGS_TABS: FilterOption[] = [
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'taxonomies', label: 'Taxonomies' },
   { id: 'adapters', label: 'Adapters' },
-];
-
-const STAGE_PROBABILITIES: Record<string, number> = {
-  'stage-1': 10,
-  'stage-2': 25,
-  'stage-3': 40,
-  'stage-4': 60,
-  'stage-5': 80,
-  'stage-6': 100,
-};
-
-const LOST_REASONS = [
-  { code: 'PRICE_TOO_HIGH', label: 'Price Too High / Budget Constraints', category: 'Commercial' },
-  { code: 'COMPETITOR_CHOSEN', label: 'Competitor Chosen', category: 'Competition' },
-  { code: 'UNRESPONSIVE_GHOSTED', label: 'Unresponsive / Ghosted', category: 'Engagement' },
-  { code: 'SCOPE_MISMATCH', label: 'Technical / Scope Mismatch', category: 'Capability' },
-  { code: 'TIMING_POSTPONED', label: 'Project Postponed / Not Right Time', category: 'Timeline' },
-  { code: 'OTHER', label: 'Other Justification Required', category: 'General' },
 ];
 
 const LEAD_SOURCES = [
@@ -64,47 +50,49 @@ const SERVICE_LINES = [
   { name: 'Cloud Infrastructure & DevOps Migration', domain: 'Cloud & Infrastructure' },
 ];
 
-const ADAPTER_STATUSES = [
-  {
-    name: 'WhatsApp MessagingAdapter',
-    statusText: 'Planned (Phase 7) / Not Connected',
-    badgeVariant: 'warning' as const,
-    phase: 'Phase 7 Planned',
-    icon: MessageSquare,
-  },
-  {
-    name: 'TelephonyAdapter (Cloud Voice)',
-    statusText: 'Planned (Phase 8) / Not Connected',
-    badgeVariant: 'warning' as const,
-    phase: 'Phase 8 Planned',
-    icon: Phone,
-  },
-  {
-    name: 'StorageAdapter (Document Storage)',
-    statusText: 'Mock / In-Memory',
-    badgeVariant: 'neutral' as const,
-    phase: 'Phase 2 Mock Mode',
-    icon: HardDrive,
-  },
-  {
-    name: 'Database & Persistence Layer',
-    statusText: 'Mock Data Mode / PostgreSQL Planned',
-    badgeVariant: 'neutral' as const,
-    phase: 'Phase 5 Planned',
-    icon: Database,
-  },
-];
-
 export const SettingsPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('general');
-  const [sessionSaveNotice, setSessionSaveNotice] = useState(false);
 
-  const handleSaveChanges = () => {
-    setSessionSaveNotice(true);
-    setTimeout(() => {
-      setSessionSaveNotice(false);
-    }, 4000);
+  // Queries for live data
+  const authQuery = useQuery({
+    queryKey: ['auth-me'],
+    queryFn: () => authApi.getMe(),
+  });
+
+  const healthQuery = useQuery({
+    queryKey: ['health'],
+    queryFn: () => crmApi.getHealth(),
+    refetchInterval: 30000,
+  });
+
+  const stagesQuery = useQuery({
+    queryKey: ['pipeline-stages'],
+    queryFn: () => crmApi.getPipelineStages(),
+  });
+
+  const dealsQuery = useQuery({
+    queryKey: ['deals'],
+    queryFn: () => crmApi.getDeals({ limit: 100 }),
+  });
+
+  const lostReasonsQuery = useQuery({
+    queryKey: ['lost-reasons'],
+    queryFn: () => crmApi.getLostReasons(),
+  });
+
+  const handleRefreshAll = () => {
+    authQuery.refetch();
+    healthQuery.refetch();
+    stagesQuery.refetch();
+    dealsQuery.refetch();
+    lostReasonsQuery.refetch();
   };
+
+  const isDbConnected = healthQuery.data?.database?.status === 'connected';
+  const orgData = authQuery.data?.organization;
+  const stages = stagesQuery.data || [];
+  const deals = dealsQuery.data?.data || [];
+  const lostReasons = lostReasonsQuery.data || [];
 
   return (
     <div className="space-y-4">
@@ -114,18 +102,18 @@ export const SettingsPage: React.FC = () => {
         badge="Admin Config"
         actions={
           <div className="flex items-center gap-2">
-            {sessionSaveNotice && (
-              <span className="text-[11px] font-medium text-[#16A34A] flex items-center gap-1 bg-[#F0FDF4] px-2.5 py-1 rounded-badge border border-[#BBF7D0]">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Changes saved for this session.
-              </span>
-            )}
+            <span className="text-[11px] font-medium text-txt-muted flex items-center gap-1 bg-slate-50 px-2.5 py-1 rounded-badge border border-border">
+              <ShieldCheck className="h-3.5 w-3.5 text-[#57B71B]" />
+              Live System Configuration (Read-Only)
+            </span>
             <Button
               size="sm"
-              onClick={handleSaveChanges}
-              className="h-8 px-3 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer shrink-0"
+              variant="outline"
+              onClick={handleRefreshAll}
+              className="h-8 px-2.5 text-xs font-medium cursor-pointer shrink-0"
             >
-              Save Changes
+              <RotateCcw className="h-3.5 w-3.5 mr-1" />
+              Refresh
             </Button>
           </div>
         }
@@ -147,53 +135,108 @@ export const SettingsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
           <Card className="border-border shadow-card bg-white">
             <CardHeader className="py-3 px-4 border-b border-border">
-              <CardTitle className="text-xs font-bold text-txt-primary flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-[#57B71B]" /> Organization Parameters
+              <CardTitle className="text-xs font-bold text-txt-primary flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Building2 className="h-4 w-4 text-[#57B71B]" /> Organization Parameters
+                </span>
+                {authQuery.isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt-muted" />}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-txt-muted">Organization Name</span>
-                <span className="font-semibold text-txt-primary">DigiTechzo</span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-txt-muted">Base Currency</span>
-                <span className="font-semibold text-txt-primary tabular-nums">INR (₹)</span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-txt-muted">System Timezone</span>
-                <span className="font-medium text-txt-primary">Asia/Kolkata (IST, UTC+5:30)</span>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-txt-muted">Tenant Mode</span>
-                <Badge variant="neutral">Single-Tenant Dedicated</Badge>
-              </div>
+              {authQuery.isError ? (
+                <div className="flex items-center gap-2 text-danger-dark font-medium py-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Failed to load organization parameters</span>
+                  <Button variant="ghost" size="sm" onClick={() => authQuery.refetch()} className="h-6 px-2 text-xs">
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Organization Name</span>
+                    <span className="font-semibold text-txt-primary">
+                      {orgData?.name || 'DigiTechzo Media & Technologies Pvt Ltd'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Organization Slug</span>
+                    <span className="font-mono text-txt-secondary text-[11px]">
+                      {orgData?.slug || 'digitechzo'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Base Currency</span>
+                    <span className="font-semibold text-txt-primary tabular-nums">INR (₹)</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">System Timezone</span>
+                    <span className="font-medium text-txt-primary">Asia/Kolkata (IST, UTC+5:30)</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-txt-muted">Tenant Mode</span>
+                    <Badge variant="neutral">
+                      Single-Tenant Dedicated
+                    </Badge>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
           <Card className="border-border shadow-card bg-white">
             <CardHeader className="py-3 px-4 border-b border-border">
-              <CardTitle className="text-xs font-bold text-txt-primary flex items-center gap-2">
-                <Globe2 className="h-4 w-4 text-primary" /> Application Runtime State
+              <CardTitle className="text-xs font-bold text-txt-primary flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Globe2 className="h-4 w-4 text-primary" /> Application Runtime State
+                </span>
+                {healthQuery.isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-txt-muted" />}
               </CardTitle>
             </CardHeader>
             <CardContent className="p-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-txt-muted">Execution Mode</span>
-                <Badge variant="success">Phase 2 Mock Workflows</Badge>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-txt-muted">State Persistence</span>
-                <span className="font-medium text-txt-secondary">In-Memory / React Session</span>
-              </div>
-              <div className="flex items-center justify-between py-1 border-b border-border/60">
-                <span className="text-txt-muted">Design System</span>
-                <span className="font-medium text-txt-primary">DigiTechzo Tokenized (Manrope)</span>
-              </div>
-              <div className="flex items-center justify-between py-1">
-                <span className="text-txt-muted">Active Role Scopes</span>
-                <span className="font-semibold text-txt-primary">Super Admin, Manager, BDE</span>
-              </div>
+              {healthQuery.isError ? (
+                <div className="flex items-center gap-2 text-danger-dark font-medium py-2">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Failed to evaluate system health</span>
+                  <Button variant="ghost" size="sm" onClick={() => healthQuery.refetch()} className="h-6 px-2 text-xs">
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Execution Mode</span>
+                    <Badge variant="success">Phase 3 Live PostgreSQL</Badge>
+                  </div>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Database Connectivity</span>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant={isDbConnected ? 'success' : 'danger'}>
+                        {isDbConnected ? 'Connected (Port 5432)' : 'Disconnected'}
+                      </Badge>
+                      {healthQuery.data?.database?.latencyMs !== undefined && (
+                        <span className="text-[10px] text-txt-muted tabular-nums">
+                          ({healthQuery.data.database.latencyMs}ms)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Environment</span>
+                    <span className="font-mono text-txt-secondary text-[11px] uppercase">
+                      {healthQuery.data?.environment || 'development'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between py-1 border-b border-border/60">
+                    <span className="text-txt-muted">Design System</span>
+                    <span className="font-medium text-txt-primary">DigiTechzo Tokenized (Manrope)</span>
+                  </div>
+                  <div className="flex items-center justify-between py-1">
+                    <span className="text-txt-muted">Active Role Scopes</span>
+                    <span className="font-semibold text-txt-primary">Admin, Manager, BDE, Marketing, Delivery</span>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -205,54 +248,84 @@ export const SettingsPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="text-xs font-semibold text-txt-primary flex items-center gap-1.5">
               <Sliders className="h-3.5 w-3.5 text-[#57B71B]" />
-              Pipeline Stages & Forecast Probabilities
+              Pipeline Stages & Forecast Benchmarks
             </div>
             <div className="text-[11px] text-txt-muted">
-              {MOCK_PIPELINE_STAGES.length} configured stages
+              {stagesQuery.isLoading ? 'Loading stages...' : `${stages.length} configured stages`}
             </div>
           </div>
 
-          <div className="rounded-card border border-border bg-white shadow-card overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[80px]">Sequence</TableHead>
-                  <TableHead className="w-[200px]">Stage Name</TableHead>
-                  <TableHead className="w-[120px]">Stage Type</TableHead>
-                  <TableHead className="w-[140px] text-right">Win Probability</TableHead>
-                  <TableHead className="w-[140px] text-right">Active Deals</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {MOCK_PIPELINE_STAGES.map((stage) => {
-                  const dealCount = MOCK_DEALS.filter((d) => d.stageId === stage.id).length;
-                  const probability = STAGE_PROBABILITIES[stage.id] ?? 0;
+          {stagesQuery.isLoading ? (
+            <div className="flex flex-col items-center justify-center py-16 space-y-2 bg-white rounded-card border border-border">
+              <Loader2 className="h-6 w-6 animate-spin text-[#57B71B]" />
+              <p className="text-xs text-txt-muted">Loading pipeline stages from PostgreSQL...</p>
+            </div>
+          ) : stagesQuery.isError ? (
+            <div className="flex flex-col items-center justify-center py-12 space-y-3 bg-white rounded-card border border-border">
+              <div className="flex items-center gap-2 text-danger-dark text-xs font-medium">
+                <AlertCircle className="h-4 w-4" />
+                <span>Failed to load pipeline stages from backend</span>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => stagesQuery.refetch()} className="h-7 text-xs">
+                <RotateCcw className="h-3 w-3 mr-1" /> Retry
+              </Button>
+            </div>
+          ) : (
+            <div className="rounded-card border border-border bg-white shadow-card overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[80px]">Sequence</TableHead>
+                    <TableHead className="w-[200px]">Stage Name</TableHead>
+                    <TableHead className="w-[120px]">Stage Type</TableHead>
+                    <TableHead className="w-[150px] text-right">Target Deals</TableHead>
+                    <TableHead className="w-[160px] text-right">Target Value</TableHead>
+                    <TableHead className="w-[120px] text-right">Active Deals</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stages.map((stage) => {
+                    const activeDealCount = deals.filter((d: any) => d.stageId === stage.id).length;
 
-                  return (
-                    <TableRow key={stage.id}>
-                      <TableCell className="font-semibold text-xs text-txt-muted tabular-nums">
-                        #{stage.order}
-                      </TableCell>
-                      <TableCell className="font-semibold text-xs text-txt-primary">
-                        {stage.name}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={stage.stageType === 'WON' ? 'success' : 'neutral'}>
-                          {stage.stageType}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold text-xs text-txt-primary tabular-nums">
-                        {probability}%
-                      </TableCell>
-                      <TableCell className="text-right font-bold text-xs text-txt-primary tabular-nums">
-                        {dealCount} {dealCount === 1 ? 'deal' : 'deals'}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+                    return (
+                      <TableRow key={stage.id}>
+                        <TableCell className="font-semibold text-xs text-txt-muted tabular-nums">
+                          #{stage.order}
+                        </TableCell>
+                        <TableCell className="font-semibold text-xs text-txt-primary">
+                          {stage.name}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              stage.stageType === 'WON'
+                                ? 'success'
+                                : stage.stageType === 'LOST'
+                                ? 'danger'
+                                : 'neutral'
+                            }
+                          >
+                            {stage.stageType}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-xs text-txt-secondary tabular-nums">
+                          {stage.dealCountBenchmark !== undefined ? `${stage.dealCountBenchmark} deals` : '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-xs text-txt-primary tabular-nums">
+                          {stage.totalValueBenchmark !== undefined
+                            ? `₹${Number(stage.totalValueBenchmark).toLocaleString('en-IN')}`
+                            : '—'}
+                        </TableCell>
+                        <TableCell className="text-right font-bold text-xs text-txt-primary tabular-nums">
+                          {activeDealCount} {activeDealCount === 1 ? 'deal' : 'deals'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
       )}
 
@@ -273,19 +346,33 @@ export const SettingsPage: React.FC = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
-                <div className="divide-y divide-border text-xs">
-                  {LOST_REASONS.map((reason) => (
-                    <div key={reason.code} className="p-3 flex items-start justify-between gap-2">
-                      <div className="space-y-0.5">
-                        <div className="font-semibold text-txt-primary">{reason.label}</div>
-                        <div className="font-mono text-[10px] text-txt-muted">{reason.code}</div>
+                {lostReasonsQuery.isLoading ? (
+                  <div className="flex flex-col items-center justify-center py-10 space-y-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-[#57B71B]" />
+                    <p className="text-xs text-txt-muted">Loading lost reasons...</p>
+                  </div>
+                ) : lostReasonsQuery.isError ? (
+                  <div className="flex flex-col items-center justify-center py-8 space-y-2">
+                    <span className="text-xs text-danger-dark">Failed to load lost reasons</span>
+                    <Button variant="ghost" size="sm" onClick={() => lostReasonsQuery.refetch()} className="h-6 text-xs">
+                      Retry
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-border text-xs">
+                    {lostReasons.map((reason) => (
+                      <div key={reason.id || reason.code} className="p-3 flex items-start justify-between gap-2">
+                        <div className="space-y-0.5">
+                          <div className="font-semibold text-txt-primary">{reason.label}</div>
+                          <div className="font-mono text-[10px] text-txt-muted">{reason.code}</div>
+                        </div>
+                        <Badge variant={reason.isActive ? 'success' : 'neutral'} className="text-[10px] shrink-0">
+                          {reason.isActive ? 'Active' : 'Inactive'}
+                        </Badge>
                       </div>
-                      <Badge variant="neutral" className="text-[10px] shrink-0">
-                        {reason.category}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -294,7 +381,7 @@ export const SettingsPage: React.FC = () => {
               <Card className="border-border shadow-card bg-white">
                 <CardHeader className="py-3 px-4 border-b border-border">
                   <CardTitle className="text-xs font-bold text-txt-primary flex items-center gap-2">
-                    <Layers className="h-4 w-4 text-[#57B71B]" /> Lead Capture Sources
+                    <Layers className="h-4 w-4 text-[#57B71B]" /> Lead Capture Sources (Canonical Taxonomy)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -315,7 +402,7 @@ export const SettingsPage: React.FC = () => {
               <Card className="border-border shadow-card bg-white">
                 <CardHeader className="py-3 px-4 border-b border-border">
                   <CardTitle className="text-xs font-bold text-txt-primary flex items-center gap-2">
-                    <Tags className="h-4 w-4 text-primary" /> Active Service Offerings
+                    <Tags className="h-4 w-4 text-primary" /> Active Service Offerings (Domain Reference)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -344,28 +431,71 @@ export const SettingsPage: React.FC = () => {
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-border text-xs">
-              {ADAPTER_STATUSES.map((adapter) => {
-                const Icon = adapter.icon;
-                return (
-                  <div
-                    key={adapter.name}
-                    className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-card border border-border bg-slate-50 flex items-center justify-center shrink-0">
-                        <Icon className="h-4 w-4 text-txt-muted" />
-                      </div>
-                      <div>
-                        <div className="font-semibold text-txt-primary">{adapter.name}</div>
-                        <div className="text-[11px] text-txt-muted">{adapter.phase}</div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
-                      <Badge variant={adapter.badgeVariant}>{adapter.statusText}</Badge>
-                    </div>
+              {/* Live Database Adapter */}
+              <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-card border border-border bg-slate-50 flex items-center justify-center shrink-0">
+                    <Database className="h-4 w-4 text-[#57B71B]" />
                   </div>
-                );
-              })}
+                  <div>
+                    <div className="font-semibold text-txt-primary">Database & Persistence Layer (PostgreSQL)</div>
+                    <div className="text-[11px] text-txt-muted">Phase 3 Live Production Backend</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <Badge variant={isDbConnected ? 'success' : 'danger'}>
+                    {isDbConnected ? 'PostgreSQL Active / Port 5432' : 'Degraded / Disconnected'}
+                  </Badge>
+                </div>
+              </div>
+
+              {/* Storage Adapter */}
+              <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-card border border-border bg-slate-50 flex items-center justify-center shrink-0">
+                    <HardDrive className="h-4 w-4 text-txt-muted" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-txt-primary">StorageAdapter (Document Storage)</div>
+                    <div className="text-[11px] text-txt-muted">Phase 3 Foundation (Local/Memory)</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <Badge variant="neutral">Local File Storage</Badge>
+                </div>
+              </div>
+
+              {/* WhatsApp Adapter */}
+              <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-card border border-border bg-slate-50 flex items-center justify-center shrink-0">
+                    <MessageSquare className="h-4 w-4 text-txt-muted" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-txt-primary">WhatsApp MessagingAdapter</div>
+                    <div className="text-[11px] text-txt-muted">Planned (Phase 7)</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <Badge variant="warning">Planned (Phase 7) / Not Connected</Badge>
+                </div>
+              </div>
+
+              {/* Telephony Adapter */}
+              <div className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-card border border-border bg-slate-50 flex items-center justify-center shrink-0">
+                    <Phone className="h-4 w-4 text-txt-muted" />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-txt-primary">TelephonyAdapter (Cloud Voice)</div>
+                    <div className="text-[11px] text-txt-muted">Planned (Phase 8)</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <Badge variant="warning">Planned (Phase 8) / Not Connected</Badge>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>

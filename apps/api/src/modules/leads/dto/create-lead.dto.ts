@@ -78,11 +78,11 @@ export class CreateLeadDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.replace(/[\s\-\(\)]/g, '') : value))
   phone: string;
 
-  @ApiProperty({ description: 'Contact email address', example: 'vikram@apexlogistics.in' })
+  @ApiPropertyOptional({ description: 'Contact email address', example: 'vikram@apexlogistics.in' })
+  @IsOptional()
   @IsEmail({}, { message: 'Must be a valid email address' })
-  @IsNotEmpty()
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
-  email: string;
+  @Transform(({ value }) => (typeof value === 'string' && value.trim() ? value.trim().toLowerCase() : undefined))
+  email?: string;
 
   @ApiProperty({ enum: LeadSourceEnum, description: 'Marketing or capture source channel', example: LeadSourceEnum.WEBSITE_FORM })
   @IsEnum(LeadSourceEnum, {

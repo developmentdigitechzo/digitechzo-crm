@@ -23,6 +23,8 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 import { UpdateLeadStatusDto } from './dto/update-lead-status.dto';
 import { UpsertLeadQualificationDto } from './dto/upsert-qualification.dto';
+import { UpdateNextActionDto } from './dto/update-next-action.dto';
+import { UpdatePriorityTemperatureDto } from './dto/update-priority-temperature.dto';
 import { LeadQueryDto } from './dto/lead-query.dto';
 import {
   LeadResponseDto,
@@ -191,7 +193,7 @@ export class LeadsController {
   @Put(':id/qualification')
   @Permissions('leads:update')
   @ApiOperation({
-    summary: 'Upsert BANT qualification criteria',
+    summary: 'Upsert BANT qualification criteria (PUT)',
     description: 'Saves or updates BANT qualification criteria for the lead.',
   })
   @ApiParam({ name: 'id', description: 'Lead UUID' })
@@ -206,6 +208,66 @@ export class LeadsController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<LeadQualificationResponseDto> {
     return this.leadsService.upsertQualification(id, dto, user);
+  }
+
+  @Patch(':id/qualification')
+  @Permissions('leads:update')
+  @ApiOperation({
+    summary: 'Update/Upsert BANT qualification criteria (PATCH)',
+    description: 'Updates or records BANT qualification criteria for the lead.',
+  })
+  @ApiParam({ name: 'id', description: 'Lead UUID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Qualification updated successfully',
+    type: LeadQualificationResponseDto,
+  })
+  async patchQualification(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpsertLeadQualificationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<LeadQualificationResponseDto> {
+    return this.leadsService.upsertQualification(id, dto, user);
+  }
+
+  @Patch(':id/next-action')
+  @Permissions('leads:update')
+  @ApiOperation({
+    summary: 'Update lead next-action snapshot',
+    description: 'Updates the lightweight next-action snapshot (due date, channel type, purpose, and assigned owner).',
+  })
+  @ApiParam({ name: 'id', description: 'Lead UUID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Next action snapshot updated successfully',
+    type: LeadResponseDto,
+  })
+  async updateNextAction(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateNextActionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<LeadResponseDto> {
+    return this.leadsService.updateNextAction(id, dto, user);
+  }
+
+  @Patch(':id/priority')
+  @Permissions('leads:update')
+  @ApiOperation({
+    summary: 'Update lead priority and temperature',
+    description: 'Updates commercial SLA priority (LOW, MEDIUM, HIGH, URGENT) and temperature (HOT, WARM, COLD).',
+  })
+  @ApiParam({ name: 'id', description: 'Lead UUID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Priority and temperature updated successfully',
+    type: LeadResponseDto,
+  })
+  async updatePriorityTemperature(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePriorityTemperatureDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<LeadResponseDto> {
+    return this.leadsService.updatePriorityTemperature(id, dto, user);
   }
 
   @Delete(':id')

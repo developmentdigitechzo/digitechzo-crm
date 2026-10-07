@@ -457,7 +457,78 @@ describe('B2.1 Lead Management Unit & Integration Suite', () => {
     });
   });
 
-  describe('6. Soft Deletion Governance', () => {
+  describe('6. Next Action Snapshot & Priority Updates', () => {
+    it('should update next action snapshot and record audit log', async () => {
+      prisma.lead.findFirst.mockResolvedValue(sampleLead);
+      const updatedMock = {
+        ...sampleLead,
+        nextActionDueAt: new Date('2026-10-20T10:00:00.000Z'),
+        nextActionType: 'EMAIL',
+        nextActionPurpose: 'Send revised commercial proposal',
+      };
+      prisma.lead.update.mockResolvedValue(updatedMock);
+
+      const result = await service.updateNextAction(
+        'lead-uuid-1',
+        {
+          nextActionDueAt: '2026-10-20T10:00:00.000Z',
+          nextActionType: 'EMAIL' as any,
+          nextActionPurpose: 'Send revised commercial proposal',
+        },
+        mockBdeUser,
+      );
+
+      expect(prisma.lead.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'lead-uuid-1' },
+          data: expect.objectContaining({
+            nextActionType: 'EMAIL',
+            nextActionPurpose: 'Send revised commercial proposal',
+            nextActionOwnerId: mockBdeUser.userId,
+          }),
+        }),
+      );
+      expect(auditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'LEAD_NEXT_ACTION_UPDATED',
+          resourceId: 'lead-uuid-1',
+        }),
+      );
+      expect(result.nextAction?.type).toBe('EMAIL');
+    });
+
+    it('should update priority and temperature', async () => {
+      prisma.lead.findFirst.mockResolvedValue(sampleLead);
+      prisma.lead.update.mockResolvedValue({
+        ...sampleLead,
+        priority: 'URGENT',
+        temperature: 'HOT',
+      });
+
+      const result = await service.updatePriorityTemperature(
+        'lead-uuid-1',
+        {
+          priority: LeadPriorityEnum.URGENT,
+          temperature: LeadTemperatureEnum.HOT,
+        },
+        mockBdeUser,
+      );
+
+      expect(prisma.lead.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'lead-uuid-1' },
+          data: expect.objectContaining({
+            priority: 'URGENT',
+            temperature: 'HOT',
+          }),
+        }),
+      );
+      expect(result.priority).toBe('URGENT');
+      expect(result.temperature).toBe('HOT');
+    });
+  });
+
+  describe('7. Soft Deletion Governance', () => {
     it('should soft delete lead and record audit log', async () => {
       prisma.lead.findFirst.mockResolvedValue(sampleLead);
       prisma.lead.update.mockResolvedValue({
@@ -483,7 +554,7 @@ describe('B2.1 Lead Management Unit & Integration Suite', () => {
     });
   });
 
-  describe('7. Controller Route Mapping', () => {
+  describe('8. Controller Route Mapping', () => {
     it('should delegate controller.findAll to service.findAll', async () => {
       const spy = jest.spyOn(service, 'findAll').mockResolvedValue({
         items: [],
@@ -509,6 +580,26 @@ describe('B2.1 Lead Management Unit & Integration Suite', () => {
 
       await controller.create(dto, mockAdminUser);
       expect(spy).toHaveBeenCalledWith(dto, mockAdminUser);
+    });
+
+    it('should delegate controller.updateNextAction to service.updateNextAction', async () => {
+      const dto = {
+        nextActionPurpose: 'Call client',
+      };
+      const spy = jest.spyOn(service, 'updateNextAction').mockResolvedValue({} as any);
+
+      await controller.updateNextAction('lead-uuid-1', dto, mockAdminUser);
+      expect(spy).toHaveBeenCalledWith('lead-uuid-1', dto, mockAdminUser);
+    });
+
+    it('should delegate controller.patchQualification to service.upsertQualification', async () => {
+      const dto = {
+        budgetAmount: 100000,
+      };
+      const spy = jest.spyOn(service, 'upsertQualification').mockResolvedValue({} as any);
+
+      await controller.patchQualification('lead-uuid-1', dto, mockAdminUser);
+      expect(spy).toHaveBeenCalledWith('lead-uuid-1', dto, mockAdminUser);
     });
   });
 });

@@ -59,6 +59,12 @@ async function bootstrap() {
     .addTag('Auth', 'Authentication, token rotation, and session management')
     .addTag('Users', 'User identity and access profile')
     .addTag('Leads', 'Lead generation, qualification, assignment, and lifecycle')
+    .addTag('Deals', 'Pipeline management, deal stages, and win/loss governance')
+    .addTag('Tasks', 'Task scheduling, follow-ups, and action engine')
+    .addTag('Activities', 'Activity timeline, communication history, and interaction logging')
+    .addTag('Meetings', 'Meeting and demo scheduling, outcomes, and calendar tracking')
+    .addTag('Proposals', 'Quotation lifecycle, proposal amounts, and client acceptance')
+    .addTag('Customers', 'Converted customer accounts and account management')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);

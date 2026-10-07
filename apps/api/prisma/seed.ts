@@ -64,6 +64,22 @@ export async function seedDatabase() {
     { resource: 'tasks', action: 'create', description: 'Create tasks' },
     { resource: 'tasks', action: 'update', description: 'Update tasks' },
     { resource: 'tasks', action: 'delete', description: 'Delete tasks' },
+    { resource: 'activities', action: 'read', description: 'View activity timeline' },
+    { resource: 'activities', action: 'create', description: 'Create activity logs' },
+    { resource: 'activities', action: 'update', description: 'Update activities' },
+    { resource: 'activities', action: 'delete', description: 'Delete activities' },
+    { resource: 'meetings', action: 'read', description: 'View scheduled meetings and demos' },
+    { resource: 'meetings', action: 'create', description: 'Schedule new meetings and demos' },
+    { resource: 'meetings', action: 'update', description: 'Update meeting details and status' },
+    { resource: 'meetings', action: 'delete', description: 'Cancel/delete meetings' },
+    { resource: 'proposals', action: 'read', description: 'View quotations and proposals' },
+    { resource: 'proposals', action: 'create', description: 'Create new proposals' },
+    { resource: 'proposals', action: 'update', description: 'Update proposals and status' },
+    { resource: 'proposals', action: 'delete', description: 'Delete proposals' },
+    { resource: 'customers', action: 'read', description: 'View customer accounts' },
+    { resource: 'customers', action: 'create', description: 'Create/convert customers' },
+    { resource: 'customers', action: 'update', description: 'Update customer details' },
+    { resource: 'customers', action: 'delete', description: 'Deactivate/delete customers' },
     { resource: 'reports', action: 'read', description: 'View executive analytics' },
   ];
 
@@ -94,6 +110,10 @@ export async function seedDatabase() {
     'leads:read', 'leads:create', 'leads:update',
     'deals:read', 'deals:create', 'deals:update',
     'tasks:read', 'tasks:create', 'tasks:update',
+    'activities:read', 'activities:create', 'activities:update',
+    'meetings:read', 'meetings:create', 'meetings:update',
+    'proposals:read', 'proposals:create', 'proposals:update',
+    'customers:read', 'customers:create', 'customers:update',
     'reports:read',
   ];
   const managerRoleId = rolesMap.get('MANAGER')!;
@@ -113,6 +133,10 @@ export async function seedDatabase() {
     'leads:read', 'leads:create', 'leads:update',
     'deals:read', 'deals:create', 'deals:update',
     'tasks:read', 'tasks:create', 'tasks:update',
+    'activities:read', 'activities:create', 'activities:update',
+    'meetings:read', 'meetings:create', 'meetings:update',
+    'proposals:read', 'proposals:create', 'proposals:update',
+    'customers:read', 'customers:create', 'customers:update',
     'reports:read',
   ];
   const bdeRoleId = rolesMap.get('BDE_SALES')!;

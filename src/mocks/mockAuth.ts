@@ -4,6 +4,7 @@ export const MOCK_USERS: User[] = [
   {
     id: 'user-1',
     email: 'arjun.v@digitechzo.com',
+    name: 'Arjun Verma',
     firstName: 'Arjun',
     lastName: 'Verma',
     role: 'BDE',
@@ -14,6 +15,7 @@ export const MOCK_USERS: User[] = [
   {
     id: 'user-2',
     email: 'priya.s@digitechzo.com',
+    name: 'Priya Sharma',
     firstName: 'Priya',
     lastName: 'Sharma',
     role: 'BDE',
@@ -24,6 +26,7 @@ export const MOCK_USERS: User[] = [
   {
     id: 'user-3',
     email: 'vikram.m@digitechzo.com',
+    name: 'Vikram Malhotra',
     firstName: 'Vikram',
     lastName: 'Malhotra',
     role: 'SALES_MANAGER',
@@ -34,6 +37,7 @@ export const MOCK_USERS: User[] = [
   {
     id: 'user-admin',
     email: 'admin@digitechzo.com',
+    name: 'Aditya Rao',
     firstName: 'Aditya',
     lastName: 'Rao',
     role: 'ADMIN',
@@ -41,23 +45,14 @@ export const MOCK_USERS: User[] = [
   },
 ];
 
-export const DEFAULT_MOCK_USER = MOCK_USERS[0]; // Arjun Verma (BDE)
+export const DEFAULT_MOCK_USER = MOCK_USERS[0];
 
 const STORAGE_KEY = 'digitechzo_mock_session';
 
 export const mockAuthService = {
   getCurrentSession(): AuthSession | null {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      // Default initial session for immediate developer preview
-      const session: AuthSession = {
-        user: DEFAULT_MOCK_USER,
-        token: 'mock-jwt-token-preview',
-        expiresAt: new Date(Date.now() + 86400000).toISOString(),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
-      return session;
-    }
+    if (!raw) return null;
     try {
       return JSON.parse(raw) as AuthSession;
     } catch {
@@ -69,6 +64,7 @@ export const mockAuthService = {
     const user = MOCK_USERS.find(u => u.email.toLowerCase() === email.toLowerCase()) || {
       id: 'user-custom',
       email,
+      name: email.split('@')[0],
       firstName: email.split('@')[0],
       lastName: 'User',
       role: 'BDE' as const,
@@ -77,6 +73,7 @@ export const mockAuthService = {
 
     const session: AuthSession = {
       user,
+      accessToken: 'mock-jwt-token-' + Date.now(),
       token: 'mock-jwt-token-' + Date.now(),
       expiresAt: new Date(Date.now() + 86400000).toISOString(),
     };
@@ -94,6 +91,7 @@ export const mockAuthService = {
     if (!user) return null;
     const session: AuthSession = {
       user,
+      accessToken: 'mock-jwt-token-' + Date.now(),
       token: 'mock-jwt-token-' + Date.now(),
       expiresAt: new Date(Date.now() + 86400000).toISOString(),
     };

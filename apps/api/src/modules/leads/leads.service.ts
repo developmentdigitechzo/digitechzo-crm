@@ -14,6 +14,8 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { AssignLeadDto } from './dto/assign-lead.dto';
 import { UpdateLeadStatusDto, LeadStatusEnum } from './dto/update-lead-status.dto';
 import { UpsertLeadQualificationDto } from './dto/upsert-qualification.dto';
+import { UpdateNextActionDto } from './dto/update-next-action.dto';
+import { UpdatePriorityTemperatureDto } from './dto/update-priority-temperature.dto';
 import { LeadQueryDto } from './dto/lead-query.dto';
 import {
   LeadResponseDto,
@@ -148,12 +150,17 @@ export class LeadsService {
    * Create a new lead with tenant deduplication and audit logging.
    */
   async create(dto: CreateLeadDto, user: AuthenticatedUser): Promise<LeadResponseDto> {
-    // 1. Deduplication check: active phone or email in this tenant
+    // 1. Deduplication check: active phone or email (if provided) in this tenant
+    const orConditions: any[] = [{ phone: dto.phone }];
+    if (dto.email && dto.email.trim()) {
+      orConditions.push({ email: dto.email.trim().toLowerCase() });
+    }
+
     const existingLead = await this.prisma.lead.findFirst({
       where: {
         organizationId: user.organizationId,
         deletedAt: null,
-        OR: [{ phone: dto.phone }, { email: dto.email }],
+        OR: orConditions,
       },
     });
 
@@ -189,7 +196,7 @@ export class LeadsService {
         companyName: dto.companyName || null,
         title: dto.title || null,
         phone: dto.phone,
-        email: dto.email,
+        email: (dto.email ? dto.email.trim().toLowerCase() : null) as any,
         source: dto.source,
         status: LeadStatusEnum.NEW,
         priority: dto.priority || 'MEDIUM',
@@ -499,6 +506,109 @@ export class LeadsService {
     });
 
     return this.mapToQualificationResponseDto(qualification);
+  }
+
+  /**
+   * Update lightweight next-action snapshot on lead.
+   */
+  async updateNextAction(
+    id: string,
+    dto: UpdateNextActionDto,
+    user: AuthenticatedUser,
+  ): Promise<LeadResponseDto> {
+    const lead = await this.getLeadOrThrow(id, user);
+
+    let nextActionOwnerId = lead.nextActionOwnerId;
+    if (user.role === 'BDE_SALES') {
+      nextActionOwnerId = user.userId;
+    } else if (dto.nextActionOwnerId) {
+      // Validate target user in same organization
+      const targetUser = await this.prisma.user.findFirst({
+        where: {
+          id: dto.nextActionOwnerId,
+          organizationId: user.organizationId,
+          status: 'ACTIVE',
+        },
+      });
+      if (!targetUser) {
+        throw new BadRequestException('Target action owner not found or inactive in this organization');
+      }
+      nextActionOwnerId = dto.nextActionOwnerId;
+    }
+
+    const updatedLead = await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        nextActionDueAt: dto.nextActionDueAt ? new Date(dto.nextActionDueAt) : null,
+        nextActionType: dto.nextActionType || null,
+        nextActionPurpose: dto.nextActionPurpose || null,
+        nextActionOwnerId,
+        lastActivityAt: new Date(),
+      },
+      include: {
+        owner: {
+          select: { id: true, name: true, email: true },
+        },
+        qualification: true,
+      },
+    });
+
+    await this.auditService.record({
+      organizationId: user.organizationId,
+      userId: user.userId,
+      action: 'LEAD_NEXT_ACTION_UPDATED',
+      resource: 'leads',
+      resourceId: lead.id,
+      details: {
+        nextActionDueAt: dto.nextActionDueAt,
+        nextActionType: dto.nextActionType,
+        nextActionPurpose: dto.nextActionPurpose,
+      },
+    });
+
+    return this.mapToLeadResponseDto(updatedLead);
+  }
+
+  /**
+   * Update lead priority and temperature.
+   */
+  async updatePriorityTemperature(
+    id: string,
+    dto: UpdatePriorityTemperatureDto,
+    user: AuthenticatedUser,
+  ): Promise<LeadResponseDto> {
+    const lead = await this.getLeadOrThrow(id, user);
+
+    const updateData: Prisma.LeadUpdateInput = {
+      lastActivityAt: new Date(),
+    };
+    if (dto.priority !== undefined) updateData.priority = dto.priority;
+    if (dto.temperature !== undefined) updateData.temperature = dto.temperature;
+
+    const updatedLead = await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: updateData,
+      include: {
+        owner: {
+          select: { id: true, name: true, email: true },
+        },
+        qualification: true,
+      },
+    });
+
+    await this.auditService.record({
+      organizationId: user.organizationId,
+      userId: user.userId,
+      action: 'LEAD_PRIORITY_UPDATED',
+      resource: 'leads',
+      resourceId: lead.id,
+      details: {
+        priority: dto.priority,
+        temperature: dto.temperature,
+      },
+    });
+
+    return this.mapToLeadResponseDto(updatedLead);
   }
 
   /**
