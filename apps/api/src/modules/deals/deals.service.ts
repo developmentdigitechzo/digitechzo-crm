@@ -140,18 +140,16 @@ export class DealsService {
       throw new BadRequestException('Specified pipeline stage does not exist');
     }
 
-    // 2. Verify lead if provided
-    if (dto.leadId) {
-      const lead = await this.prisma.lead.findFirst({
-        where: {
-          id: dto.leadId,
-          organizationId: user.organizationId,
-          deletedAt: null,
-        },
-      });
-      if (!lead) {
-        throw new BadRequestException('Associated lead not found in this organization');
-      }
+    // 2. Verify mandatory originating lead exists and is active
+    const lead = await this.prisma.lead.findFirst({
+      where: {
+        id: dto.leadId,
+        organizationId: user.organizationId,
+        deletedAt: null,
+      },
+    });
+    if (!lead) {
+      throw new BadRequestException('Associated lead not found in this organization');
     }
 
     // 3. Ownership resolution
@@ -175,7 +173,7 @@ export class DealsService {
       data: {
         organizationId: user.organizationId,
         ownerId: targetOwnerId,
-        leadId: dto.leadId || null,
+        leadId: dto.leadId,
         stageId: dto.stageId,
         title: dto.title,
         value: new Prisma.Decimal(dto.value),
@@ -191,13 +189,11 @@ export class DealsService {
       },
     });
 
-    // 5. If originating lead exists and stage is active, advance lead status if appropriate
-    if (dto.leadId) {
-      await this.prisma.lead.update({
-        where: { id: dto.leadId },
-        data: { lastActivityAt: new Date() },
-      });
-    }
+    // 5. Advance lead last activity
+    await this.prisma.lead.update({
+      where: { id: dto.leadId },
+      data: { lastActivityAt: new Date() },
+    });
 
     await this.auditService.record({
       organizationId: user.organizationId,
@@ -300,6 +296,47 @@ export class DealsService {
       },
     });
 
+    // Log activity touchpoint for stage transition
+    try {
+      await this.prisma.activity.create({
+        data: {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          leadId: deal.leadId,
+          dealId: deal.id,
+          activityType: 'NOTE',
+          subject: `Pipeline Stage Changed: ${targetStage.name}`,
+          description: `Deal moved from previous stage to "${targetStage.name}". Stage order: ${targetStage.order}. Status: ${newStatus}`,
+          outcome: 'COMPLETED',
+          activityDate: new Date(),
+        },
+      });
+
+      // Synchronize lead status with pipeline stage
+      if (deal.leadId) {
+        let correspondingLeadStatus: any = undefined;
+        if (targetStage.order === 1) correspondingLeadStatus = 'NEW';
+        else if (targetStage.order === 2) correspondingLeadStatus = 'CONTACTED';
+        else if (targetStage.order === 3) correspondingLeadStatus = 'QUALIFIED';
+        else if (targetStage.order === 4) correspondingLeadStatus = 'PROPOSAL_SENT';
+        else if (targetStage.order === 5) correspondingLeadStatus = 'NEGOTIATION';
+        else if (targetStage.order === 6 || targetStage.stageType === 'WON') correspondingLeadStatus = 'WON';
+        else if (targetStage.order === 7 || targetStage.stageType === 'LOST') correspondingLeadStatus = 'LOST';
+
+        if (correspondingLeadStatus) {
+          await this.prisma.lead.update({
+            where: { id: deal.leadId },
+            data: {
+              status: correspondingLeadStatus,
+              lastActivityAt: new Date(),
+            },
+          });
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to sync activity/lead on deal stage change: ${e.message}`);
+    }
+
     await this.auditService.record({
       organizationId: user.organizationId,
       userId: user.userId,
@@ -317,7 +354,7 @@ export class DealsService {
   }
 
   /**
-   * Mark deal as WON.
+   * Mark deal as WON with atomic Lead conversion and Customer creation/linking.
    */
   async markWon(id: string, dto: MarkDealWonDto, user: AuthenticatedUser): Promise<DealResponseDto> {
     const deal = await this.getDealOrThrow(id, user);
@@ -327,45 +364,145 @@ export class DealsService {
       where: { stageType: 'WON' },
     });
 
-    const updatedDeal = await this.prisma.deal.update({
-      where: { id: deal.id },
-      data: {
-        status: 'WON',
-        stageId: wonStage ? wonStage.id : deal.stageId,
-        closedAt: new Date(),
-        wonNotes: dto.wonNotes || null,
-        probability: 100,
-      },
-      include: {
-        owner: { select: { id: true, name: true, email: true } },
-        stage: true,
-        lead: { select: { id: true, fullName: true } },
-        lostReason: true,
-      },
+    // Fetch the linked Lead
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: deal.leadId, organizationId: user.organizationId, deletedAt: null },
     });
-
-    // Advance linked lead to CONVERTED
-    if (deal.leadId) {
-      await this.prisma.lead.update({
-        where: { id: deal.leadId },
-        data: { status: 'CONVERTED', lastActivityAt: new Date() },
-      });
+    if (!lead) {
+      throw new NotFoundException(`Associated lead ${deal.leadId} not found in this organization`);
     }
 
-    await this.auditService.record({
-      organizationId: user.organizationId,
-      userId: user.userId,
-      action: 'DEAL_WON',
-      resource: 'deals',
-      resourceId: deal.id,
-      details: { wonNotes: dto.wonNotes, value: Number(deal.value) },
+    const { updatedDeal } = await this.prisma.$transaction(async (tx) => {
+      // 1. Update Deal
+      const updatedDeal = await tx.deal.update({
+        where: { id: deal.id },
+        data: {
+          status: 'WON',
+          stageId: wonStage ? wonStage.id : deal.stageId,
+          closedAt: deal.closedAt || new Date(),
+          wonNotes: dto.wonNotes || deal.wonNotes || null,
+          probability: 100,
+        },
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+          stage: true,
+          lead: { select: { id: true, fullName: true } },
+          lostReason: true,
+        },
+      });
+
+      // 2. Update Lead status to CONVERTED
+      let leadStatusChanged = false;
+      if (lead.status !== 'CONVERTED') {
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: { status: 'CONVERTED', lastActivityAt: new Date() },
+        });
+        leadStatusChanged = true;
+      } else {
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: { lastActivityAt: new Date() },
+        });
+      }
+
+      // 3. Upsert / safely reuse Customer for this Lead
+      const existingCustomer = await tx.customer.findFirst({
+        where: {
+          leadId: lead.id,
+          organizationId: user.organizationId,
+          deletedAt: null,
+        },
+      });
+
+      let customerRecord;
+      let isNewCustomer = false;
+
+      if (existingCustomer) {
+        // Reuse existing customer account (multi-deal / expansion scenario)
+        const updatedNotes = dto.wonNotes
+          ? (existingCustomer.notes
+              ? `${existingCustomer.notes}\n\n[Won Deal: ${deal.title}] ${dto.wonNotes}`
+              : `[Won Deal: ${deal.title}] ${dto.wonNotes}`)
+          : existingCustomer.notes;
+
+        customerRecord = await tx.customer.update({
+          where: { id: existingCustomer.id },
+          data: {
+            dealId: deal.id,
+            status: 'ACTIVE',
+            notes: updatedNotes,
+          },
+        });
+      } else {
+        // Create new Customer copying master details from Lead
+        const companyName = lead.companyName?.trim() || lead.fullName.trim();
+        const contactName = lead.fullName.trim();
+        const phone = lead.phone.trim();
+        const email = lead.email?.trim() || `${phone.replace(/\D/g, '') || lead.id.slice(0, 8)}@client.digitechzo.local`;
+
+        customerRecord = await tx.customer.create({
+          data: {
+            organizationId: user.organizationId,
+            ownerId: deal.ownerId,
+            leadId: lead.id,
+            dealId: deal.id,
+            companyName,
+            contactName,
+            title: lead.title || null,
+            phone,
+            email,
+            country: 'India',
+            status: 'ACTIVE',
+            customerSince: new Date(),
+            notes: dto.wonNotes ? `[Won Deal: ${deal.title}] ${dto.wonNotes}` : `Converted from Lead: ${lead.fullName}`,
+          },
+        });
+        isNewCustomer = true;
+      }
+
+      // 4. Record Audit Logs
+      if (deal.status !== 'WON') {
+        await this.auditService.recordTx(tx, {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          action: 'DEAL_WON',
+          resource: 'deals',
+          resourceId: deal.id,
+          details: { wonNotes: dto.wonNotes, value: Number(deal.value), customerId: customerRecord.id },
+        });
+      }
+
+      if (leadStatusChanged) {
+        await this.auditService.recordTx(tx, {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          action: 'LEAD_STATUS_CHANGED',
+          resource: 'leads',
+          resourceId: lead.id,
+          details: { previousStatus: lead.status, newStatus: 'CONVERTED', trigger: 'DEAL_WON' },
+        });
+      }
+
+      if (isNewCustomer) {
+        await this.auditService.recordTx(tx, {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          action: 'CUSTOMER_CREATED',
+          resource: 'customers',
+          resourceId: customerRecord.id,
+          details: { companyName: customerRecord.companyName, contactName: customerRecord.contactName, leadId: lead.id, dealId: deal.id, trigger: 'DEAL_WON' },
+        });
+      }
+
+      return { updatedDeal, createdCustomer: customerRecord, isNewCustomer };
     });
 
     return this.mapToDealResponseDto(updatedDeal);
   }
 
   /**
-   * Mark deal as LOST.
+   * Mark deal as LOST with atomic Lead status synchronization.
    */
   async markLost(id: string, dto: MarkDealLostDto, user: AuthenticatedUser): Promise<DealResponseDto> {
     const deal = await this.getDealOrThrow(id, user);
@@ -382,34 +519,95 @@ export class DealsService {
       where: { stageType: 'LOST' },
     });
 
-    const updatedDeal = await this.prisma.deal.update({
-      where: { id: deal.id },
-      data: {
-        status: 'LOST',
-        stageId: lostStage ? lostStage.id : deal.stageId,
-        lostReasonId: dto.lostReasonId,
-        lostReasonNotes: dto.lostReasonNotes || null,
-        closedAt: new Date(),
-        probability: 0,
-      },
-      include: {
-        owner: { select: { id: true, name: true, email: true } },
-        stage: true,
-        lead: { select: { id: true, fullName: true } },
-        lostReason: true,
-      },
+    // Fetch linked Lead
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: deal.leadId, organizationId: user.organizationId, deletedAt: null },
     });
+    if (!lead) {
+      throw new NotFoundException(`Associated lead ${deal.leadId} not found in this organization`);
+    }
 
-    await this.auditService.record({
-      organizationId: user.organizationId,
-      userId: user.userId,
-      action: 'DEAL_LOST',
-      resource: 'deals',
-      resourceId: deal.id,
-      details: {
-        lostReasonCode: lostReason.code,
-        lostReasonNotes: dto.lostReasonNotes,
-      },
+    const updatedDeal = await this.prisma.$transaction(async (tx) => {
+      // 1. Update Deal
+      const updatedDeal = await tx.deal.update({
+        where: { id: deal.id },
+        data: {
+          status: 'LOST',
+          stageId: lostStage ? lostStage.id : deal.stageId,
+          lostReasonId: dto.lostReasonId,
+          lostReasonNotes: dto.lostReasonNotes || null,
+          closedAt: deal.closedAt || new Date(),
+          probability: 0,
+        },
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+          stage: true,
+          lead: { select: { id: true, fullName: true } },
+          lostReason: true,
+        },
+      });
+
+      // 2. Check if Lead has any other OPEN deals
+      const otherOpenDealsCount = await tx.deal.count({
+        where: {
+          leadId: lead.id,
+          organizationId: user.organizationId,
+          deletedAt: null,
+          status: 'OPEN',
+          id: { not: deal.id },
+        },
+      });
+
+      let leadStatusChanged = false;
+      // Only transition Lead to LOST if no other open deals and lead is not already CONVERTED
+      if (otherOpenDealsCount === 0 && lead.status !== 'CONVERTED' && lead.status !== 'LOST') {
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: {
+            status: 'LOST',
+            lastActivityAt: new Date(),
+          },
+        });
+        leadStatusChanged = true;
+      } else {
+        await tx.lead.update({
+          where: { id: lead.id },
+          data: { lastActivityAt: new Date() },
+        });
+      }
+
+      // 3. Record Audit Logs
+      if (deal.status !== 'LOST') {
+        await this.auditService.recordTx(tx, {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          action: 'DEAL_LOST',
+          resource: 'deals',
+          resourceId: deal.id,
+          details: {
+            lostReasonCode: lostReason.code,
+            lostReasonNotes: dto.lostReasonNotes,
+          },
+        });
+      }
+
+      if (leadStatusChanged) {
+        await this.auditService.recordTx(tx, {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          action: 'LEAD_STATUS_CHANGED',
+          resource: 'leads',
+          resourceId: lead.id,
+          details: {
+            previousStatus: lead.status,
+            newStatus: 'LOST',
+            lostReasonCode: lostReason.code,
+            trigger: 'DEAL_LOST',
+          },
+        });
+      }
+
+      return updatedDeal;
     });
 
     return this.mapToDealResponseDto(updatedDeal);

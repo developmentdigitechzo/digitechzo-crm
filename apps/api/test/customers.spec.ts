@@ -149,6 +149,7 @@ describe('B2.7 Customers Unit & Integration Suite', () => {
             contactName: 'Rohan Sharma',
             phone: '+919876543210',
             email: 'rohan@acme.com',
+            leadId: 'lead-uuid-1',
           },
           mockBde,
         ),

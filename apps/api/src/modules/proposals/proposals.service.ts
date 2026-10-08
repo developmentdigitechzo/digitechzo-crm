@@ -192,12 +192,11 @@ export class ProposalsService {
   }
 
   async create(dto: CreateProposalDto, user: AuthenticatedUser): Promise<ProposalResponseDto> {
-    if (dto.leadId) {
-      const lead = await this.prisma.lead.findFirst({
-        where: { id: dto.leadId, organizationId: user.organizationId, deletedAt: null },
-      });
-      if (!lead) throw new BadRequestException(`Lead ${dto.leadId} not found`);
-    }
+    // Verify mandatory originating lead
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: dto.leadId, organizationId: user.organizationId, deletedAt: null },
+    });
+    if (!lead) throw new BadRequestException(`Associated lead ${dto.leadId} not found in this organization`);
 
     if (dto.dealId) {
       const deal = await this.prisma.deal.findFirst({
@@ -232,7 +231,7 @@ export class ProposalsService {
         organizationId: user.organizationId,
         ownerId: targetOwnerId,
         creatorId: user.userId,
-        leadId: dto.leadId || null,
+        leadId: dto.leadId,
         dealId: dto.dealId || null,
         proposalNumber,
         title: dto.title,
@@ -253,6 +252,80 @@ export class ProposalsService {
         deal: { select: { id: true, title: true } },
       },
     });
+
+    // Auto-advance Deal to Stage 4 (Proposal Sent), update Deal amount from Proposal, and update Lead
+    try {
+      const targetLeadId = dto.leadId;
+      const targetDealId = dto.dealId;
+      if (targetLeadId || targetDealId) {
+        const whereClause: any = {
+          organizationId: user.organizationId,
+          deletedAt: null,
+          status: 'OPEN',
+        };
+        if (targetDealId) {
+          whereClause.id = targetDealId;
+        } else if (targetLeadId) {
+          whereClause.leadId = targetLeadId;
+        }
+
+        const activeDeal: any = await this.prisma.deal.findFirst({
+          where: whereClause,
+          include: { stage: true },
+        });
+
+        if (activeDeal) {
+          // Link proposal to deal if it was unlinked
+          if (!proposal.dealId) {
+            await this.prisma.proposal.update({
+              where: { id: proposal.id },
+              data: { dealId: activeDeal.id },
+            });
+          }
+
+          const stage4 = await this.prisma.pipelineStage.findFirst({
+            where: { order: 4 },
+          });
+
+          const dealUpdateData: any = {
+            value: new Prisma.Decimal(totalAmount),
+          };
+          if (stage4 && activeDeal.stage?.order < 4) {
+            dealUpdateData.stageId = stage4.id;
+          }
+
+          await this.prisma.deal.update({
+            where: { id: activeDeal.id },
+            data: dealUpdateData,
+          });
+
+          if (stage4 && activeDeal.stage?.order < 4) {
+            await this.auditService.record({
+              organizationId: user.organizationId,
+              userId: user.userId,
+              action: 'DEAL_STAGE_CHANGED',
+              resource: 'deals',
+              resourceId: activeDeal.id,
+              details: {
+                previousStageId: activeDeal.stageId,
+                newStageId: stage4.id,
+                newValue: totalAmount,
+                reason: `Auto-advanced to Proposal Sent and updated value upon creating proposal ${proposal.proposalNumber}`,
+              },
+            });
+          }
+        }
+      }
+
+      if (dto.leadId) {
+        await this.prisma.lead.update({
+          where: { id: dto.leadId },
+          data: { lastActivityAt: new Date(), status: 'PROPOSAL_SENT' },
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to auto-advance deal on proposal create: ${e.message}`);
+    }
 
     await this.auditService.record({
       organizationId: user.organizationId,
@@ -297,7 +370,7 @@ export class ProposalsService {
     if (dto.notes !== undefined) updateData.notes = dto.notes;
 
     if (dto.leadId !== undefined) {
-      updateData.lead = dto.leadId ? { connect: { id: dto.leadId } } : { disconnect: true };
+      updateData.lead = { connect: { id: dto.leadId } };
     }
     if (dto.dealId !== undefined) {
       updateData.deal = dto.dealId ? { connect: { id: dto.dealId } } : { disconnect: true };
@@ -384,6 +457,81 @@ export class ProposalsService {
         deal: { select: { id: true, title: true } },
       },
     });
+
+    // If status transitioned to SENT, auto-advance Deal to Stage 4, update deal value, and update Lead
+    if (dto.status === ProposalStatusEnum.SENT) {
+      try {
+        const targetLeadId = existing.leadId;
+        const targetDealId = existing.dealId;
+        if (targetLeadId || targetDealId) {
+          const whereClause: any = {
+            organizationId: user.organizationId,
+            deletedAt: null,
+            status: 'OPEN',
+          };
+          if (targetDealId) {
+            whereClause.id = targetDealId;
+          } else if (targetLeadId) {
+            whereClause.leadId = targetLeadId;
+          }
+
+          const activeDeal: any = await this.prisma.deal.findFirst({
+            where: whereClause,
+            include: { stage: true },
+          });
+
+          if (activeDeal) {
+            if (!existing.dealId) {
+              await this.prisma.proposal.update({
+                where: { id: existing.id },
+                data: { dealId: activeDeal.id },
+              });
+            }
+
+            const stage4 = await this.prisma.pipelineStage.findFirst({
+              where: { order: 4 },
+            });
+
+            const dealUpdateData: any = {
+              value: new Prisma.Decimal(updated.totalAmount),
+            };
+            if (stage4 && activeDeal.stage?.order < 4) {
+              dealUpdateData.stageId = stage4.id;
+            }
+
+            await this.prisma.deal.update({
+              where: { id: activeDeal.id },
+              data: dealUpdateData,
+            });
+
+            if (stage4 && activeDeal.stage?.order < 4) {
+              await this.auditService.record({
+                organizationId: user.organizationId,
+                userId: user.userId,
+                action: 'DEAL_STAGE_CHANGED',
+                resource: 'deals',
+                resourceId: activeDeal.id,
+                details: {
+                  previousStageId: activeDeal.stageId,
+                  newStageId: stage4.id,
+                  newValue: Number(updated.totalAmount),
+                  reason: `Auto-advanced to Proposal Sent and updated value upon proposal ${existing.proposalNumber} status updated to SENT`,
+                },
+              });
+            }
+          }
+        }
+
+        if (existing.leadId) {
+          await this.prisma.lead.update({
+            where: { id: existing.leadId },
+            data: { lastActivityAt: new Date(), status: 'PROPOSAL_SENT' },
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`Failed to auto-advance deal on proposal SENT: ${e.message}`);
+      }
+    }
 
     await this.auditService.record({
       organizationId: user.organizationId,

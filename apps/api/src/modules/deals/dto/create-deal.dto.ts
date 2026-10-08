@@ -34,11 +34,11 @@ export class CreateDealDto {
   @IsUUID('4', { message: 'stageId must be a valid UUIDv4' })
   stageId: string;
 
-  @ApiPropertyOptional({ description: 'Originating Lead UUID', example: 'b0000000-0000-0000-0000-000000000001' })
-  @IsOptional()
+  @ApiProperty({ description: 'Originating Lead UUID', example: 'b0000000-0000-0000-0000-000000000001' })
   @IsString()
+  @IsNotEmpty({ message: 'leadId is required for every deal' })
   @IsUUID('4', { message: 'leadId must be a valid UUIDv4' })
-  leadId?: string;
+  leadId: string;
 
   @ApiPropertyOptional({ description: 'Assigned deal owner UUID (Admin/Manager can assign)', example: 'a0000000-0000-0000-0000-000000000002' })
   @IsOptional()

@@ -241,6 +241,38 @@ export const crmApi = {
     });
   },
 
+  getLeadQualification(id: string) {
+    return apiFetch<any>(`/leads/${id}/qualification`);
+  },
+
+  upsertLeadQualification(id: string, data: any) {
+    return apiFetch<any>(`/leads/${id}/qualification`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateLeadStatus(id: string, status: string, unqualifiedReason?: string) {
+    return apiFetch<any>(`/leads/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status, unqualifiedReason }),
+    });
+  },
+
+  updateLeadNextAction(id: string, data: any) {
+    return apiFetch<any>(`/leads/${id}/next-action`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateLeadPriorityTemperature(id: string, data: any) {
+    return apiFetch<any>(`/leads/${id}/priority`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
   getPipelineStages() {
     return apiFetch<import('@/types/crm').PipelineStageDto[]>('/deals/stages');
   },

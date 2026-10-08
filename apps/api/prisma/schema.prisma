@@ -260,7 +260,7 @@ model Deal {
   id                String         @id @default(uuid())
   organizationId    String         @map("organization_id")
   ownerId           String         @map("owner_id")
-  leadId            String?        @map("lead_id")
+  leadId            String         @map("lead_id")
   stageId           String         @map("stage_id")
   title             String
   value             Decimal        @default(0) @db.Decimal(14, 2)
@@ -277,7 +277,7 @@ model Deal {
 
   organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   owner             User           @relation("DealOwner", fields: [ownerId], references: [id], onDelete: Restrict)
-  lead              Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead              Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   stage             PipelineStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
   lostReason        LostReason?    @relation(fields: [lostReasonId], references: [id], onDelete: SetNull)
 
@@ -376,7 +376,7 @@ model Activity {
 model Meeting {
   id             String       @id @default(uuid())
   organizationId String       @map("organization_id")
-  leadId         String?      @map("lead_id")
+  leadId         String       @map("lead_id")
   dealId         String?      @map("deal_id")
   title          String
   description    String?      @db.Text
@@ -397,7 +397,7 @@ model Meeting {
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   deal           Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
   owner          User         @relation("MeetingOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   creator        User?        @relation("MeetingCreator", fields: [creatorId], references: [id], onDelete: SetNull)
@@ -417,7 +417,7 @@ model Meeting {
 model Proposal {
   id              String       @id @default(uuid())
   organizationId  String       @map("organization_id")
-  leadId          String?      @map("lead_id")
+  leadId          String       @map("lead_id")
   dealId          String?      @map("deal_id")
   proposalNumber  String       @map("proposal_number")
   title           String
@@ -441,7 +441,7 @@ model Proposal {
   updatedAt       DateTime     @updatedAt @map("updated_at")
 
   organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lead            Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead            Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   deal            Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
   owner           User         @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   creator         User?        @relation("ProposalCreator", fields: [creatorId], references: [id], onDelete: SetNull)
@@ -460,7 +460,7 @@ model Proposal {
 model Customer {
   id             String       @id @default(uuid())
   organizationId String       @map("organization_id")
-  leadId         String?      @map("lead_id")
+  leadId         String       @map("lead_id")
   dealId         String?      @map("deal_id")
   companyName    String       @map("company_name")
   contactName    String       @map("contact_name")
@@ -481,7 +481,7 @@ model Customer {
   updatedAt      DateTime     @updatedAt @map("updated_at")
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  lead           Lead?        @relation("LeadCustomer", fields: [leadId], references: [id], onDelete: SetNull)
+  lead           Lead         @relation("LeadCustomer", fields: [leadId], references: [id], onDelete: Cascade)
   deal           Deal?        @relation("DealCustomer", fields: [dealId], references: [id], onDelete: SetNull)
   owner          User         @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: Restrict)
 

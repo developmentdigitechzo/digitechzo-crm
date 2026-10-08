@@ -554,7 +554,7 @@ export const PipelinePage: React.FC = () => {
       ) : viewMode === 'kanban' ? (
         /* KANBAN BOARD VIEW */
         <div className="relative w-full overflow-x-auto pb-3 pt-1">
-          <div className="flex gap-3 items-start min-w-[1080px] sm:min-w-[1240px]">
+          <div className="flex gap-3 items-start min-w-[1400px]">
             {stages.map((stage) => {
               const stageDeals = filteredDeals.filter((d) => d.stageId === stage.id);
               const isWonStage = stage.stageType === 'WON';

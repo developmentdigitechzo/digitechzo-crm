@@ -93,12 +93,15 @@ describe('B2.1 Lead Management Unit & Integration Suite', () => {
 
   beforeEach(async () => {
     prisma = {
+      $transaction: jest.fn(async (cb) => (typeof cb === 'function' ? cb(prisma) : cb)),
       lead: {
         findFirst: jest.fn(),
         findMany: jest.fn(),
         count: jest.fn(),
         create: jest.fn(),
         update: jest.fn(),
+        delete: jest.fn(),
+        deleteMany: jest.fn(),
       },
       user: {
         findFirst: jest.fn(),
@@ -106,6 +109,30 @@ describe('B2.1 Lead Management Unit & Integration Suite', () => {
       leadQualification: {
         findUnique: jest.fn(),
         upsert: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      proposal: {
+        deleteMany: jest.fn(),
+      },
+      meeting: {
+        deleteMany: jest.fn(),
+      },
+      activity: {
+        create: jest.fn().mockResolvedValue({ id: 'act-1' }),
+        deleteMany: jest.fn(),
+      },
+      task: {
+        deleteMany: jest.fn(),
+      },
+      deal: {
+        create: jest.fn().mockResolvedValue({ id: 'deal-1' }),
+        deleteMany: jest.fn(),
+      },
+      customer: {
+        deleteMany: jest.fn(),
+      },
+      pipelineStage: {
+        findFirst: jest.fn().mockResolvedValue({ id: 'stage-1', name: 'Qualification', order: 1 }),
       },
     };
 
@@ -528,21 +555,17 @@ describe('B2.1 Lead Management Unit & Integration Suite', () => {
     });
   });
 
-  describe('7. Soft Deletion Governance', () => {
-    it('should soft delete lead and record audit log', async () => {
+  describe('7. Lead Deletion Governance', () => {
+    it('should delete lead and record audit log', async () => {
       prisma.lead.findFirst.mockResolvedValue(sampleLead);
-      prisma.lead.update.mockResolvedValue({
-        ...sampleLead,
-        deletedAt: new Date(),
-      });
+      prisma.lead.delete.mockResolvedValue(sampleLead);
 
       const result = await service.softDelete('lead-uuid-1', mockAdminUser);
 
-      expect(result.message).toContain('soft-deleted');
-      expect(prisma.lead.update).toHaveBeenCalledWith(
+      expect(result.message).toContain('deleted successfully');
+      expect(prisma.lead.delete).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { id: 'lead-uuid-1' },
-          data: { deletedAt: expect.any(Date) },
         }),
       );
       expect(auditService.record).toHaveBeenCalledWith(

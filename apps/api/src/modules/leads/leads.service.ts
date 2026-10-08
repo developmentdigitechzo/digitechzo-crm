@@ -187,33 +187,89 @@ export class LeadsService {
       targetOwnerId = dto.ownerId;
     }
 
-    // 3. Create record
-    const createdLead = await this.prisma.lead.create({
-      data: {
-        organizationId: user.organizationId,
-        ownerId: targetOwnerId,
-        fullName: dto.fullName,
-        companyName: dto.companyName || null,
-        title: dto.title || null,
-        phone: dto.phone,
-        email: (dto.email ? dto.email.trim().toLowerCase() : null) as any,
-        source: dto.source,
-        status: LeadStatusEnum.NEW,
-        priority: dto.priority || 'MEDIUM',
-        temperature: dto.temperature || null,
-        serviceInterest: dto.serviceInterest,
-        leadScore: dto.leadScore ?? null,
-        nextActionDueAt: dto.nextActionDueAt ? new Date(dto.nextActionDueAt) : null,
-        nextActionType: dto.nextActionType || null,
-        nextActionPurpose: dto.nextActionPurpose || null,
-        nextActionOwnerId: dto.nextActionDueAt ? targetOwnerId : null,
-      },
-      include: {
-        owner: {
-          select: { id: true, name: true, email: true },
+    // 3. Create lead and initialize its pipeline opportunity in a single transaction
+    const createdLead = await this.prisma.$transaction(async (tx) => {
+      const lead = await tx.lead.create({
+        data: {
+          organizationId: user.organizationId,
+          ownerId: targetOwnerId,
+          fullName: dto.fullName,
+          companyName: dto.companyName || null,
+          title: dto.title || null,
+          phone: dto.phone,
+          email: (dto.email ? dto.email.trim().toLowerCase() : null) as any,
+          source: dto.source,
+          status: LeadStatusEnum.NEW,
+          priority: dto.priority || 'MEDIUM',
+          temperature: dto.temperature || null,
+          serviceInterest: dto.serviceInterest,
+          leadScore: dto.leadScore ?? 80,
+          nextActionDueAt: dto.nextActionDueAt ? new Date(dto.nextActionDueAt) : null,
+          nextActionType: dto.nextActionType || null,
+          nextActionPurpose: dto.nextActionPurpose || null,
+          nextActionOwnerId: dto.nextActionDueAt ? targetOwnerId : null,
         },
-        qualification: true,
-      },
+        include: {
+          owner: {
+            select: { id: true, name: true, email: true },
+          },
+          qualification: true,
+        },
+      });
+
+      // Find first pipeline stage to attach deal
+      const firstStage = await tx.pipelineStage.findFirst({
+        orderBy: { order: 'asc' },
+      });
+
+      let initialDeal: any = null;
+      if (firstStage) {
+        initialDeal = await tx.deal.create({
+          data: {
+            organizationId: user.organizationId,
+            ownerId: targetOwnerId,
+            leadId: lead.id,
+            stageId: firstStage.id,
+            title: `${lead.fullName || lead.companyName || 'Prospect'} - ${lead.serviceInterest || 'Commercial Opportunity'}`,
+            value: new Prisma.Decimal(0),
+            probability: 50,
+            status: 'OPEN',
+          },
+        });
+      }
+
+      // Automatically create the initial follow-up task if nextActionDueAt is provided
+      if (dto.nextActionDueAt) {
+        await tx.task.create({
+          data: {
+            organizationId: user.organizationId,
+            assigneeId: targetOwnerId,
+            creatorId: user.userId,
+            leadId: lead.id,
+            dealId: initialDeal ? initialDeal.id : null,
+            title: dto.nextActionPurpose?.trim() || `Follow-up ${dto.nextActionType || 'CALL'} with ${lead.fullName}`,
+            description: `Scheduled follow-up ${dto.nextActionType || 'CALL'} regarding service: ${lead.serviceInterest}`,
+            taskType: dto.nextActionType || 'CALL',
+            dueDate: new Date(dto.nextActionDueAt),
+            priority: dto.priority || 'MEDIUM',
+            status: 'PENDING',
+          },
+        });
+      }
+
+      // Record initial touchpoint activity
+      await tx.activity.create({
+        data: {
+          organizationId: user.organizationId,
+          userId: user.userId,
+          leadId: lead.id,
+          activityType: 'SYSTEM',
+          subject: 'Lead Captured',
+          description: `New lead created via ${dto.source}. Service interest: ${dto.serviceInterest}`,
+        },
+      });
+
+      return lead;
     });
 
     // 4. Audit Log
@@ -303,6 +359,43 @@ export class LeadsService {
         qualification: true,
       },
     });
+
+    // Synchronize Task table if follow-up action was updated
+    if (dto.nextActionDueAt) {
+      const activeDeal = await this.prisma.deal.findFirst({
+        where: { leadId: id, organizationId: user.organizationId, status: 'OPEN', deletedAt: null },
+      });
+      const existingTask = await this.prisma.task.findFirst({
+        where: { leadId: id, organizationId: user.organizationId, status: 'PENDING', deletedAt: null },
+      });
+      if (existingTask) {
+        await this.prisma.task.update({
+          where: { id: existingTask.id },
+          data: {
+            dueDate: new Date(dto.nextActionDueAt),
+            taskType: dto.nextActionType || existingTask.taskType,
+            title: dto.nextActionPurpose?.trim() || existingTask.title,
+            priority: dto.priority || existingTask.priority,
+          },
+        });
+      } else {
+        await this.prisma.task.create({
+          data: {
+            organizationId: user.organizationId,
+            assigneeId: updatedLead.ownerId,
+            creatorId: user.userId,
+            leadId: id,
+            dealId: activeDeal ? activeDeal.id : null,
+            title: dto.nextActionPurpose?.trim() || `Follow-up ${dto.nextActionType || 'CALL'} with ${updatedLead.fullName}`,
+            description: `Scheduled follow-up ${dto.nextActionType || 'CALL'} regarding service: ${updatedLead.serviceInterest}`,
+            taskType: dto.nextActionType || 'CALL',
+            dueDate: new Date(dto.nextActionDueAt),
+            priority: dto.priority || 'MEDIUM',
+            status: 'PENDING',
+          },
+        });
+      }
+    }
 
     // 4. Audit Log
     await this.auditService.record({
@@ -417,6 +510,50 @@ export class LeadsService {
         qualification: true,
       },
     });
+
+    // Auto-advance active deal from Stage 1 to Stage 2 if lead status moved to CONTACTED or QUALIFIED
+    if (
+      dto.status === LeadStatusEnum.CONTACTED ||
+      dto.status === LeadStatusEnum.QUALIFIED
+    ) {
+      try {
+        const activeDeal: any = await this.prisma.deal.findFirst({
+          where: {
+            organizationId: user.organizationId,
+            leadId: id,
+            deletedAt: null,
+            status: 'OPEN',
+          },
+          include: { stage: true },
+        });
+
+        if (activeDeal && activeDeal.stage?.order === 1) {
+          const stage2 = await this.prisma.pipelineStage.findFirst({
+            where: { order: 2 },
+          });
+          if (stage2) {
+            await this.prisma.deal.update({
+              where: { id: activeDeal.id },
+              data: { stageId: stage2.id },
+            });
+            await this.auditService.record({
+              organizationId: user.organizationId,
+              userId: user.userId,
+              action: 'DEAL_STAGE_CHANGED',
+              resource: 'deals',
+              resourceId: activeDeal.id,
+              details: {
+                previousStageId: activeDeal.stageId,
+                newStageId: stage2.id,
+                reason: `Auto-advanced to Discovery on lead status change to ${dto.status}`,
+              },
+            });
+          }
+        }
+      } catch (e: any) {
+        // non-fatal
+      }
+    }
 
     await this.auditService.record({
       organizationId: user.organizationId,
@@ -612,14 +749,14 @@ export class LeadsService {
   }
 
   /**
-   * Soft-delete lead (Restricted to ADMIN).
+   * Delete lead (Restricted to ADMIN).
+   * Permanently deletes lead and associated child records in transaction.
    */
   async softDelete(id: string, user: AuthenticatedUser): Promise<{ message: string }> {
     const lead = await this.prisma.lead.findFirst({
       where: {
         id,
         organizationId: user.organizationId,
-        deletedAt: null,
       },
     });
 
@@ -627,9 +764,17 @@ export class LeadsService {
       throw new NotFoundException('Lead not found');
     }
 
-    await this.prisma.lead.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.leadQualification.deleteMany({ where: { leadId: id } });
+      await tx.proposal.deleteMany({ where: { leadId: id } });
+      await tx.meeting.deleteMany({ where: { leadId: id } });
+      await tx.activity.deleteMany({ where: { leadId: id } });
+      await tx.task.deleteMany({ where: { leadId: id } });
+      await tx.deal.deleteMany({ where: { leadId: id } });
+      await tx.customer.deleteMany({ where: { leadId: id } });
+      await tx.lead.delete({
+        where: { id },
+      });
     });
 
     await this.auditService.record({
@@ -638,10 +783,10 @@ export class LeadsService {
       action: 'LEAD_DELETED',
       resource: 'leads',
       resourceId: id,
-      details: { deletedBy: user.userId },
+      details: { deletedBy: user.userId, deletedName: lead.fullName },
     });
 
-    return { message: 'Lead soft-deleted successfully' };
+    return { message: 'Lead deleted successfully' };
   }
 
   /**

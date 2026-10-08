@@ -189,12 +189,11 @@ export class MeetingsService {
       throw new BadRequestException('Meeting endTime must be after startTime');
     }
 
-    if (dto.leadId) {
-      const lead = await this.prisma.lead.findFirst({
-        where: { id: dto.leadId, organizationId: user.organizationId, deletedAt: null },
-      });
-      if (!lead) throw new BadRequestException(`Lead ${dto.leadId} not found`);
-    }
+    // Verify mandatory originating lead
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: dto.leadId, organizationId: user.organizationId, deletedAt: null },
+    });
+    if (!lead) throw new BadRequestException(`Associated lead ${dto.leadId} not found in this organization`);
 
     if (dto.dealId) {
       const deal = await this.prisma.deal.findFirst({
@@ -220,7 +219,7 @@ export class MeetingsService {
         organizationId: user.organizationId,
         ownerId: targetOwnerId,
         creatorId: user.userId,
-        leadId: dto.leadId || null,
+        leadId: dto.leadId,
         dealId: dto.dealId || null,
         title: dto.title,
         description: dto.description || null,
@@ -238,11 +237,58 @@ export class MeetingsService {
       },
     });
 
-    if (dto.leadId) {
-      await this.prisma.lead.update({
-        where: { id: dto.leadId },
-        data: { lastActivityAt: new Date() },
-      });
+    await this.prisma.lead.update({
+      where: { id: dto.leadId },
+      data: { lastActivityAt: new Date() },
+    });
+
+    // Auto-advance Stage 1 or Stage 2 Deal to Stage 3 (Demo / Meeting Completed)
+    try {
+      const targetLeadId = dto.leadId;
+      const targetDealId = dto.dealId;
+      if (targetLeadId || targetDealId) {
+        const whereClause: any = {
+          organizationId: user.organizationId,
+          deletedAt: null,
+          status: 'OPEN',
+        };
+        if (targetDealId) {
+          whereClause.id = targetDealId;
+        } else if (targetLeadId) {
+          whereClause.leadId = targetLeadId;
+        }
+
+        const activeDeal: any = await this.prisma.deal.findFirst({
+          where: whereClause,
+          include: { stage: true },
+        });
+
+        if (activeDeal && activeDeal.stage?.order < 3) {
+          const stage3 = await this.prisma.pipelineStage.findFirst({
+            where: { order: 3 },
+          });
+          if (stage3) {
+            await this.prisma.deal.update({
+              where: { id: activeDeal.id },
+              data: { stageId: stage3.id },
+            });
+            await this.auditService.record({
+              organizationId: user.organizationId,
+              userId: user.userId,
+              action: 'DEAL_STAGE_CHANGED',
+              resource: 'deals',
+              resourceId: activeDeal.id,
+              details: {
+                previousStageId: activeDeal.stageId,
+                newStageId: stage3.id,
+                reason: 'Auto-advanced to Demo / Meeting stage upon scheduling session',
+              },
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to auto-advance deal on meeting create: ${e.message}`);
     }
 
     await this.auditService.record({
@@ -310,7 +356,7 @@ export class MeetingsService {
     if (dto.outcome !== undefined) updateData.outcome = dto.outcome;
     if (dto.notes !== undefined) updateData.notes = dto.notes;
     if (dto.leadId !== undefined) {
-      updateData.lead = dto.leadId ? { connect: { id: dto.leadId } } : { disconnect: true };
+      updateData.lead = { connect: { id: dto.leadId } };
     }
     if (dto.dealId !== undefined) {
       updateData.deal = dto.dealId ? { connect: { id: dto.dealId } } : { disconnect: true };
@@ -389,9 +435,58 @@ export class MeetingsService {
       if (existing.leadId) {
         await this.prisma.lead.update({
           where: { id: existing.leadId },
-          data: { lastActivityAt: completedAt },
+          data: { lastActivityAt: completedAt, status: 'QUALIFIED' },
         });
       }
+    }
+
+    // Auto-advance Stage 1 or Stage 2 Deal to Stage 3 (Demo / Meeting Completed)
+    try {
+      const targetLeadId = existing.leadId;
+      const targetDealId = existing.dealId;
+      if (targetLeadId || targetDealId) {
+        const whereClause: any = {
+          organizationId: user.organizationId,
+          deletedAt: null,
+          status: 'OPEN',
+        };
+        if (targetDealId) {
+          whereClause.id = targetDealId;
+        } else if (targetLeadId) {
+          whereClause.leadId = targetLeadId;
+        }
+
+        const activeDeal: any = await this.prisma.deal.findFirst({
+          where: whereClause,
+          include: { stage: true },
+        });
+
+        if (activeDeal && activeDeal.stage?.order < 3) {
+          const stage3 = await this.prisma.pipelineStage.findFirst({
+            where: { order: 3 },
+          });
+          if (stage3) {
+            await this.prisma.deal.update({
+              where: { id: activeDeal.id },
+              data: { stageId: stage3.id },
+            });
+            await this.auditService.record({
+              organizationId: user.organizationId,
+              userId: user.userId,
+              action: 'DEAL_STAGE_CHANGED',
+              resource: 'deals',
+              resourceId: activeDeal.id,
+              details: {
+                previousStageId: activeDeal.stageId,
+                newStageId: stage3.id,
+                reason: 'Auto-advanced to Demo / Meeting Completed upon session completion',
+              },
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to auto-advance deal on meeting complete: ${e.message}`);
     }
 
     await this.auditService.record({

@@ -267,6 +267,7 @@ export const ProposalsPage: React.FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['proposals'] });
       await queryClient.invalidateQueries({ queryKey: ['leads'] });
       await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
 
       setIsCreateModalOpen(false);
       setNewProposalForm({
@@ -302,6 +303,8 @@ export const ProposalsPage: React.FC = () => {
       });
 
       await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
       if (selectedProposal && selectedProposal.id === prop.id) {
         setSelectedProposal(null);
       }
@@ -330,6 +333,9 @@ export const ProposalsPage: React.FC = () => {
       });
 
       await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
       if (selectedProposal && selectedProposal.id === propId) {
         setSelectedProposal((prev) => (prev ? { ...prev, status: nextStatus } : null));
       }
@@ -758,7 +764,7 @@ export const ProposalsPage: React.FC = () => {
                   <option value="">None / Direct</option>
                   {leads.map((lead: any) => (
                     <option key={lead.id} value={lead.id}>
-                      {lead.companyName || lead.fullName}
+                      {lead.companyName ? `${lead.companyName}${lead.fullName ? ` (${lead.fullName})` : ''}` : lead.fullName || 'Prospect'} {lead.phone ? `• ${lead.phone}` : ''}
                     </option>
                   ))}
                 </select>

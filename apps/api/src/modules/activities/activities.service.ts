@@ -270,12 +270,77 @@ export class ActivitiesService {
       },
     });
 
-    // Touch lead's lastActivityAt
+    // Touch lead's lastActivityAt and update lead status/temperature if appropriate
     if (dto.leadId) {
+      const leadUpdateData: any = { lastActivityAt: activityDate };
+      const currentLead = await this.prisma.lead.findFirst({
+        where: { id: dto.leadId },
+        select: { status: true },
+      });
+
+      if (currentLead && currentLead.status === 'NEW') {
+        leadUpdateData.status = 'CONTACTED';
+      }
+
+      if (dto.outcome === 'CONNECTED_INTERESTED') {
+        leadUpdateData.temperature = 'HOT';
+      } else if (dto.outcome === 'CONNECTED_NOT_INTERESTED') {
+        leadUpdateData.temperature = 'COLD';
+      }
+
       await this.prisma.lead.update({
         where: { id: dto.leadId },
-        data: { lastActivityAt: activityDate },
+        data: leadUpdateData,
       });
+    }
+
+    // Auto-advance Stage 1 Deal to Stage 2 (Discovery) on meaningful touchpoint (CALL, WHATSAPP, MEETING, EMAIL, TASK)
+    try {
+      const targetLeadId = dto.leadId;
+      const targetDealId = dto.dealId;
+      if (targetLeadId || targetDealId) {
+        const whereClause: any = {
+          organizationId: user.organizationId,
+          deletedAt: null,
+          status: 'OPEN',
+        };
+        if (targetDealId) {
+          whereClause.id = targetDealId;
+        } else if (targetLeadId) {
+          whereClause.leadId = targetLeadId;
+        }
+
+        const activeDeal: any = await this.prisma.deal.findFirst({
+          where: whereClause,
+          include: { stage: true },
+        });
+
+        if (activeDeal && activeDeal.stage?.order === 1) {
+          const stage2 = await this.prisma.pipelineStage.findFirst({
+            where: { order: 2 },
+          });
+          if (stage2) {
+            await this.prisma.deal.update({
+              where: { id: activeDeal.id },
+              data: { stageId: stage2.id },
+            });
+            await this.auditService.record({
+              organizationId: user.organizationId,
+              userId: user.userId,
+              action: 'DEAL_STAGE_CHANGED',
+              resource: 'deals',
+              resourceId: activeDeal.id,
+              details: {
+                previousStageId: activeDeal.stageId,
+                newStageId: stage2.id,
+                reason: `Auto-advanced to Discovery on activity creation (${created.activityType})`,
+              },
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      // non-fatal
     }
 
     // Audit log

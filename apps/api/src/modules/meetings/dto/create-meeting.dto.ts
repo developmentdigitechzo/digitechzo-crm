@@ -60,10 +60,11 @@ export class CreateMeetingDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   location?: string;
 
-  @ApiPropertyOptional({ description: 'Associated lead UUID' })
-  @IsOptional()
-  @IsUUID('4')
-  leadId?: string;
+  @ApiProperty({ description: 'Associated lead UUID for master sales record traceability' })
+  @IsString()
+  @IsNotEmpty({ message: 'leadId is required for every meeting' })
+  @IsUUID('4', { message: 'leadId must be a valid UUIDv4' })
+  leadId: string;
 
   @ApiPropertyOptional({ description: 'Associated deal UUID' })
   @IsOptional()

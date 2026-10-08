@@ -187,6 +187,7 @@ describe('B2.5 Meetings / Demos Unit & Integration Suite', () => {
             meetingType: MeetingTypeEnum.MEETING,
             startTime: '2026-10-18T11:00:00.000Z',
             endTime: '2026-10-18T10:00:00.000Z',
+            leadId: 'lead-uuid-1',
           },
           mockBde,
         ),

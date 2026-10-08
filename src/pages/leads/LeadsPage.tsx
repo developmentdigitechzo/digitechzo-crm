@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
@@ -23,31 +24,29 @@ import { formatDate } from '@/lib/utils';
 import {
   PlusCircle,
   Download,
-  Phone,
-  MessageSquare,
-  Mail,
+  Upload,
   Building,
-  User as UserIcon,
   Sparkles,
-  Calendar,
   X,
   ExternalLink,
   Edit,
+  Trash2,
   AlertCircle,
   Loader2,
+  FileSpreadsheet,
+  CheckCircle2,
 } from 'lucide-react';
 
 export const LeadsPage: React.FC = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
-
-  // Selected lead for detail preview modal
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
   // Add lead modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -56,6 +55,7 @@ export const LeadsPage: React.FC = () => {
   const [newLeadForm, setNewLeadForm] = useState({
     fullName: '',
     companyName: '',
+    title: '',
     phone: '',
     email: '',
     source: 'WEBSITE_FORM' as LeadSource,
@@ -63,7 +63,8 @@ export const LeadsPage: React.FC = () => {
     temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
     serviceInterest: 'Custom Web Application Development',
     ownerName: 'DigiTechzo Administrator',
-    nextActionDueAt: '',
+    nextActionDate: '',
+    nextActionTime: '',
     nextActionType: 'CALL' as TaskActionType,
     nextActionPurpose: '',
   });
@@ -75,10 +76,25 @@ export const LeadsPage: React.FC = () => {
   const [editForm, setEditForm] = useState({
     fullName: '',
     companyName: '',
+    title: '',
     phone: '',
     email: '',
     serviceInterest: '',
+    priority: 'MEDIUM' as TaskPriority,
+    temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
   });
+
+  // Delete lead modal state
+  const [deletingLead, setDeletingLead] = useState<Lead | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
+
+  // CSV Import State
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importRows, setImportRows] = useState<any[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
+  const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
 
   // Real Backend Data Query
   const {
@@ -105,7 +121,7 @@ export const LeadsPage: React.FC = () => {
       leadScore: item.leadScore ?? 80,
       serviceInterest: item.serviceInterest,
       ownerId: item.ownerId || item.owner?.id || '',
-      ownerName: item.ownerName || item.owner?.name || 'Unassigned',
+      ownerName: item.ownerName || item.owner?.name || 'DigiTechzo Administrator',
       lastActivityAt: item.lastActivityAt || item.createdAt,
       createdAt: item.createdAt,
       nextAction: item.nextAction
@@ -126,7 +142,7 @@ export const LeadsPage: React.FC = () => {
     }));
   }, [rawLeads]);
 
-  // Calculate status counts
+  // Status Filter options
   const statusOptions: FilterOption[] = useMemo(() => {
     const hotCount = leads.filter((l) => l.status === 'HOT').length;
     const warmCount = leads.filter((l) => l.status === 'WARM').length;
@@ -144,7 +160,7 @@ export const LeadsPage: React.FC = () => {
     ];
   }, [leads]);
 
-  // Unique sources and owners for filters
+  // Unique sources and owners
   const uniqueSources = useMemo(() => {
     return Array.from(new Set(leads.map((l) => l.source)));
   }, [leads]);
@@ -157,22 +173,15 @@ export const LeadsPage: React.FC = () => {
   // Filtered leads
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
-      // Status filter
       if (statusFilter !== 'ALL' && lead.status !== statusFilter) {
         return false;
       }
-
-      // Source filter
       if (sourceFilter !== 'ALL' && lead.source !== sourceFilter) {
         return false;
       }
-
-      // Owner filter
       if (ownerFilter !== 'ALL' && lead.ownerName !== ownerFilter) {
         return false;
       }
-
-      // Search query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesName = lead.fullName.toLowerCase().includes(q);
@@ -183,7 +192,6 @@ export const LeadsPage: React.FC = () => {
 
         return matchesName || matchesCompany || matchesPhone || matchesEmail || matchesService;
       }
-
       return true;
     });
   }, [leads, statusFilter, sourceFilter, ownerFilter, searchQuery]);
@@ -195,7 +203,7 @@ export const LeadsPage: React.FC = () => {
     setOwnerFilter('ALL');
   };
 
-  // Create Lead with Real Backend API Integration
+  // Create Lead
   const handleAddLeadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError(null);
@@ -203,11 +211,9 @@ export const LeadsPage: React.FC = () => {
     const cleanName = newLeadForm.fullName.trim();
     let rawPhone = newLeadForm.phone.trim().replace(/[\s\-\(\)]/g, '');
     if (!rawPhone.startsWith('+')) {
-      // Format 10-digit Indian numbers with +91 if needed, otherwise prefix +
       rawPhone = rawPhone.length === 10 ? `+91${rawPhone}` : `+${rawPhone}`;
     }
 
-    // Only set email if explicitly provided by the user (no fake/default email)
     const cleanEmail = newLeadForm.email.trim()
       ? newLeadForm.email.trim().toLowerCase()
       : undefined;
@@ -219,32 +225,31 @@ export const LeadsPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      await crmApi.createLead({
+      const created = await crmApi.createLead({
         fullName: cleanName,
         companyName: newLeadForm.companyName.trim() || undefined,
+        title: newLeadForm.title.trim() || undefined,
         phone: rawPhone,
         email: cleanEmail,
         source: newLeadForm.source,
         priority: newLeadForm.priority || 'MEDIUM',
         temperature: newLeadForm.temperature ? (newLeadForm.temperature as 'HOT' | 'WARM' | 'COLD') : undefined,
         serviceInterest: newLeadForm.serviceInterest.trim() || 'Custom Web Application Development',
-        nextActionDueAt: newLeadForm.nextActionDueAt
-          ? new Date(newLeadForm.nextActionDueAt).toISOString()
+        nextActionDueAt: newLeadForm.nextActionDate
+          ? new Date(`${newLeadForm.nextActionDate}T${newLeadForm.nextActionTime || '10:00'}:00`).toISOString()
           : undefined,
-        nextActionType: newLeadForm.nextActionDueAt ? newLeadForm.nextActionType : undefined,
-        nextActionPurpose: newLeadForm.nextActionDueAt
+        nextActionType: newLeadForm.nextActionDate ? newLeadForm.nextActionType : undefined,
+        nextActionPurpose: newLeadForm.nextActionDate
           ? (newLeadForm.nextActionPurpose.trim() || 'Follow-up')
           : undefined,
       });
 
-      // Invalidate queries so Leads and Dashboard both update immediately
       await queryClient.invalidateQueries({ queryKey: ['leads'] });
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-leads'] });
-
       setIsAddModalOpen(false);
       setNewLeadForm({
         fullName: '',
         companyName: '',
+        title: '',
         phone: '',
         email: '',
         source: 'WEBSITE_FORM' as LeadSource,
@@ -252,10 +257,16 @@ export const LeadsPage: React.FC = () => {
         temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
         serviceInterest: 'Custom Web Application Development',
         ownerName: 'DigiTechzo Administrator',
-        nextActionDueAt: '',
+        nextActionDate: '',
+        nextActionTime: '',
         nextActionType: 'CALL' as TaskActionType,
         nextActionPurpose: '',
       });
+
+      // Navigate to dedicated Lead Details Page immediately
+      if (created?.id) {
+        navigate(`/leads/${created.id}`);
+      }
     } catch (err: any) {
       setCreateError(
         err?.message || 'Failed to create lead. Please verify the entered information.'
@@ -271,14 +282,17 @@ export const LeadsPage: React.FC = () => {
     setEditForm({
       fullName: lead.fullName,
       companyName: lead.companyName || '',
+      title: lead.title || '',
       phone: lead.phone,
       email: lead.email || '',
       serviceInterest: lead.serviceInterest,
+      priority: (lead as any).priority || 'MEDIUM',
+      temperature: (lead as any).temperature || '',
     });
     setEditError(null);
   };
 
-  // Save Lead Edits with Real Backend API Integration
+  // Save Lead Edits
   const handleEditLeadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingLead) return;
@@ -298,30 +312,15 @@ export const LeadsPage: React.FC = () => {
       await crmApi.updateLead(editingLead.id, {
         fullName: editForm.fullName.trim(),
         companyName: editForm.companyName.trim() || undefined,
+        title: editForm.title.trim() || undefined,
         phone: rawPhone,
         email: cleanEditEmail,
         serviceInterest: editForm.serviceInterest.trim(),
+        priority: editForm.priority,
+        temperature: editForm.temperature ? (editForm.temperature as 'HOT' | 'WARM' | 'COLD') : undefined,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['leads'] });
-      await queryClient.invalidateQueries({ queryKey: ['dashboard-leads'] });
-
-      // Update local preview if selected
-      if (selectedLead?.id === editingLead.id) {
-        setSelectedLead((prev) =>
-          prev
-            ? {
-                ...prev,
-                fullName: editForm.fullName.trim(),
-                companyName: editForm.companyName.trim() || undefined,
-                phone: rawPhone,
-                email: cleanEditEmail,
-                serviceInterest: editForm.serviceInterest.trim(),
-              }
-            : null
-        );
-      }
-
       setEditingLead(null);
     } catch (err: any) {
       setEditError(err?.message || 'Failed to update lead. Please try again.');
@@ -330,28 +329,284 @@ export const LeadsPage: React.FC = () => {
     }
   };
 
+  // Delete Lead
+  const handleDeleteLead = async () => {
+    if (!deletingLead) return;
+    setIsDeleteSubmitting(true);
+    setDeleteError(null);
+    try {
+      await crmApi.deleteLead(deletingLead.id);
+      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      setDeletingLead(null);
+    } catch (err: any) {
+      setDeleteError(err?.message || 'Failed to delete lead.');
+    } finally {
+      setIsDeleteSubmitting(false);
+    }
+  };
+
+  // CSV Template Download
+  const handleDownloadTemplate = () => {
+    const headers = [
+      'Full Name',
+      'Company Name',
+      'Job Title',
+      'Phone Number',
+      'Email Address',
+      'Lead Source',
+      'Service Interest',
+      'Priority',
+      'Temperature',
+      'Follow-Up Date',
+      'Follow-Up Action Type',
+      'Follow-Up Purpose',
+    ];
+    const sampleRow = [
+      'Anand Sharma',
+      'Acme Tech Pvt Ltd',
+      'Director',
+      '+919876543210',
+      'anand@acmetech.in',
+      'WEBSITE_FORM',
+      'Custom Web Application Development',
+      'HIGH',
+      'HOT',
+      '2026-10-15',
+      'CALL',
+      'Discovery call with director',
+    ];
+    const csvContent =
+      'data:text/csv;charset=utf-8,' + [headers.join(','), sampleRow.join(',')].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', 'leads_import_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // CSV File Parsing
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportError(null);
+    setImportResult(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text
+          .split(/\r\n|\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+
+        if (lines.length < 2) {
+          setImportError('The uploaded CSV file is empty or missing data rows.');
+          return;
+        }
+
+        // Split CSV row with quotes handling
+        const parseRow = (line: string) => {
+          const result = [];
+          let current = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              result.push(current.trim());
+              current = '';
+            } else {
+              current += char;
+            }
+          }
+          result.push(current.trim());
+          return result.map((val) => val.replace(/^"|"$/g, '').trim());
+        };
+
+        const headers = parseRow(lines[0]).map((h) => h.toLowerCase());
+        const parsedRows: any[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+          const values = parseRow(lines[i]);
+          if (values.every((v) => !v)) continue; // skip blank rows
+
+          const rowData: Record<string, string> = {};
+          headers.forEach((h, index) => {
+            rowData[h] = values[index] || '';
+          });
+
+          // Match columns
+          const fullName = rowData['full name'] || rowData['name'] || values[0] || '';
+          const companyName = rowData['company name'] || rowData['company'] || values[1] || '';
+          const title = rowData['job title'] || rowData['title'] || values[2] || '';
+          const phone = rowData['phone number'] || rowData['phone'] || values[3] || '';
+          const email = rowData['email address'] || rowData['email'] || values[4] || '';
+          const source = rowData['lead source'] || rowData['source'] || values[5] || 'IMPORT';
+          const serviceInterest =
+            rowData['service interest'] || rowData['service'] || values[6] || '';
+          const priority = rowData['priority'] || values[7] || '';
+          const temperature = rowData['temperature'] || values[8] || '';
+          const followUpDate = rowData['follow-up date'] || rowData['follow up date'] || values[9] || '';
+          const followUpType = rowData['follow-up action type'] || values[10] || '';
+          const followUpPurpose = rowData['follow-up purpose'] || values[11] || '';
+
+          // Strictly preserve empty fields without synthetic defaults
+          parsedRows.push({
+            fullName: fullName.trim(),
+            companyName: companyName.trim() || undefined,
+            title: title.trim() || undefined,
+            phone: phone.trim(),
+            email: email.trim() ? email.trim().toLowerCase() : undefined,
+            source: (['WEBSITE_FORM', 'META_ADS', 'GOOGLE_ADS', 'WHATSAPP', 'MANUAL', 'PHONE_INBOUND', 'IMPORT'].includes(
+              source.toUpperCase()
+            )
+              ? source.toUpperCase()
+              : 'IMPORT') as LeadSource,
+            serviceInterest: serviceInterest.trim() || undefined,
+            priority: (['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(priority.toUpperCase())
+              ? priority.toUpperCase()
+              : undefined) as TaskPriority | undefined,
+            temperature: (['HOT', 'WARM', 'COLD'].includes(temperature.toUpperCase())
+              ? temperature.toUpperCase()
+              : undefined) as 'HOT' | 'WARM' | 'COLD' | undefined,
+            followUpDate: followUpDate.trim() || undefined,
+            followUpType: followUpType.trim() || undefined,
+            followUpPurpose: followUpPurpose.trim() || undefined,
+          });
+        }
+
+        if (parsedRows.length === 0) {
+          setImportError('No valid data rows found in the CSV.');
+          return;
+        }
+
+        setImportRows(parsedRows);
+      } catch (err: any) {
+        setImportError('Failed to parse CSV file. Please ensure valid comma-separated format.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  // Execute CSV Batch Import
+  const handleExecuteImport = async () => {
+    if (importRows.length === 0) return;
+    setIsSubmitting(true);
+    setImportProgress({ current: 0, total: importRows.length });
+
+    let successCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+
+    for (let i = 0; i < importRows.length; i++) {
+      const row = importRows[i];
+      setImportProgress({ current: i + 1, total: importRows.length });
+
+      if (!row.fullName || !row.phone) {
+        failedCount++;
+        errors.push(`Row ${i + 1}: Missing required Full Name or Phone`);
+        continue;
+      }
+
+      let rawPhone = row.phone.replace(/[\s\-\(\)]/g, '');
+      if (!rawPhone.startsWith('+')) {
+        rawPhone = rawPhone.length === 10 ? `+91${rawPhone}` : `+${rawPhone}`;
+      }
+
+      try {
+        await crmApi.createLead({
+          fullName: row.fullName,
+          companyName: row.companyName,
+          title: row.title,
+          phone: rawPhone,
+          email: row.email,
+          source: row.source,
+          priority: row.priority || 'MEDIUM',
+          temperature: row.temperature,
+          serviceInterest: row.serviceInterest || 'General Inquiry',
+          nextActionDueAt: row.followUpDate ? new Date(row.followUpDate).toISOString() : undefined,
+          nextActionType: row.followUpDate ? ((row.followUpType as any) || 'CALL') : undefined,
+          nextActionPurpose: row.followUpDate ? (row.followUpPurpose || 'Follow-up') : undefined,
+        });
+        successCount++;
+      } catch (err: any) {
+        failedCount++;
+        errors.push(`Row ${i + 1} (${row.fullName}): ${err?.message || 'Database error'}`);
+      }
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ['leads'] });
+    setImportResult({ success: successCount, failed: failedCount, errors });
+    setIsSubmitting(false);
+    setImportRows([]);
+  };
+
+  // Export CSV
+  const handleExportCSV = () => {
+    if (filteredLeads.length === 0) return;
+    const headers = ['Full Name', 'Company Name', 'Job Title', 'Phone', 'Email', 'Source', 'Status', 'Lead Score', 'Service Interest', 'Owner', 'Created Date'];
+    const rows = filteredLeads.map((l) => [
+      `"${l.fullName}"`,
+      `"${l.companyName || ''}"`,
+      `"${l.title || ''}"`,
+      `"${l.phone}"`,
+      `"${l.email || ''}"`,
+      `"${l.source}"`,
+      `"${l.status}"`,
+      `"${l.leadScore}"`,
+      `"${l.serviceInterest}"`,
+      `"${l.ownerName}"`,
+      `"${formatDate(l.createdAt)}"`,
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `leads_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const hasActiveFilters =
     searchQuery !== '' || statusFilter !== 'ALL' || sourceFilter !== 'ALL' || ownerFilter !== 'ALL';
 
   return (
-    <div className="space-y-4 select-none">
+    <div className="space-y-4 select-none pb-8">
       {/* 1. Page Header */}
       <PageHeader
         title="Leads"
         count={`${filteredLeads.length} of ${leads.length}`}
-        description="Prospective client inquiries, qualified opportunities, and lead queue"
+        description="Master sales records, prospective inquiries, and continuous pipeline tracker"
         actions={
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => {
-                alert(`Exporting ${filteredLeads.length} leads to CSV`);
-              }}
-              className="h-8 text-xs cursor-pointer"
+              onClick={handleExportCSV}
+              className="h-8 text-xs cursor-pointer border-border"
             >
               <Download className="mr-1.5 h-3.5 w-3.5 text-txt-muted" />
               Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setImportError(null);
+                setImportResult(null);
+                setImportRows([]);
+                setIsImportModalOpen(true);
+              }}
+              className="h-8 text-xs cursor-pointer border-border hover:bg-slate-50"
+            >
+              <Upload className="mr-1.5 h-3.5 w-3.5 text-txt-muted" />
+              Import CSV
             </Button>
             <Button
               size="sm"
@@ -430,7 +685,7 @@ export const LeadsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Leads Content: High-Density Table on Desktop/Tablet, Responsive Cards on Mobile */}
+      {/* 4. Leads Content: High-Density Table */}
       {isLoading ? (
         <div className="p-12 text-center flex flex-col items-center justify-center bg-white rounded-card border border-border shadow-card">
           <Loader2 className="h-6 w-6 animate-spin text-[#57B71B] mb-2" />
@@ -442,446 +697,176 @@ export const LeadsPage: React.FC = () => {
           description={
             hasActiveFilters
               ? 'Try modifying or clearing your filters to see more prospect records.'
-              : 'Get started by creating your first prospective lead.'
+              : 'Get started by creating your first prospective lead or importing from CSV.'
           }
           actionLabel={hasActiveFilters ? 'Clear Filters' : 'Add Lead'}
           onAction={hasActiveFilters ? handleResetFilters : () => setIsAddModalOpen(true)}
           className="bg-white"
         />
       ) : (
-        <>
-          {/* Desktop & Tablet Table (Hidden on small mobile) */}
-          <div className="hidden sm:block rounded-card border border-border bg-white shadow-card overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[200px]">Lead</TableHead>
-                    <TableHead className="w-[180px]">Contact</TableHead>
-                    <TableHead className="w-[110px]">Source</TableHead>
-                    <TableHead className="w-[130px]">Status & Score</TableHead>
-                    <TableHead className="w-[180px]">Service Line</TableHead>
-                    <TableHead className="w-[140px]">Owner</TableHead>
-                    <TableHead className="min-w-[210px]">Next Action</TableHead>
-                    <TableHead className="w-[80px] text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredLeads.map((lead) => (
-                    <TableRow
-                      key={lead.id}
-                      className="cursor-pointer group hover:bg-slate-50/80 transition-colors"
-                      onClick={() => setSelectedLead(lead)}
-                    >
-                      {/* 1. Lead / Company */}
-                      <TableCell>
+        <div className="rounded-card border border-border bg-white shadow-card overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[200px]">Lead / Prospect</TableHead>
+                  <TableHead className="w-[180px]">Contact Info</TableHead>
+                  <TableHead className="w-[110px]">Source</TableHead>
+                  <TableHead className="w-[130px]">Status & Score</TableHead>
+                  <TableHead className="w-[180px]">Service Line</TableHead>
+                  <TableHead className="w-[140px]">Owner</TableHead>
+                  <TableHead className="min-w-[210px]">Next Action</TableHead>
+                  <TableHead className="w-[80px] text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredLeads.map((lead) => (
+                  <TableRow
+                    key={lead.id}
+                    className="cursor-pointer group hover:bg-slate-50/80 transition-colors"
+                    onClick={() => navigate(`/leads/${lead.id}`)}
+                  >
+                    {/* 1. Lead / Company */}
+                    <TableCell>
+                      <div className="space-y-0.5">
+                        <span className="font-semibold text-xs text-txt-primary block leading-tight group-hover:text-primary transition-colors">
+                          {lead.fullName}
+                        </span>
+                        <span className="text-[11px] text-txt-muted flex items-center gap-1">
+                          <Building className="h-3 w-3 text-txt-muted shrink-0" />
+                          <span className="truncate max-w-[140px]">
+                            {lead.companyName || 'Individual'}
+                          </span>
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    {/* 2. Contact */}
+                    <TableCell>
+                      <div className="space-y-0.5 text-xs">
+                        <span className="text-txt-primary font-medium block leading-tight tabular-nums">
+                          {lead.phone}
+                        </span>
+                        <span className="text-[11px] text-txt-muted block truncate max-w-[150px]">
+                          {lead.email || '—'}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    {/* 3. Source */}
+                    <TableCell>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] font-semibold bg-slate-100 text-txt-secondary border border-border">
+                        {lead.source}
+                      </span>
+                    </TableCell>
+
+                    {/* 4. Status & Score */}
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={lead.status} type="lead" />
+                        <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-txt-secondary tabular-nums">
+                          <Sparkles className="h-3 w-3 text-amber-500" />
+                          {lead.leadScore}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    {/* 5. Service Line */}
+                    <TableCell>
+                      <span
+                        className="text-xs text-txt-primary truncate block max-w-[170px]"
+                        title={lead.serviceInterest}
+                      >
+                        {lead.serviceInterest}
+                      </span>
+                    </TableCell>
+
+                    {/* 6. Owner */}
+                    <TableCell>
+                      <div className="flex items-center gap-1.5">
+                        <Avatar className="h-5 w-5">
+                          <AvatarFallback className="bg-primary-soft text-primary text-[9px] font-bold">
+                            {lead.ownerName
+                              .split(' ')
+                              .map((n) => n[0])
+                              .join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-xs text-txt-primary truncate max-w-[100px]">
+                          {lead.ownerName}
+                        </span>
+                      </div>
+                    </TableCell>
+
+                    {/* 7. Next Action */}
+                    <TableCell>
+                      {lead.nextAction ? (
                         <div className="space-y-0.5">
-                          <span className="font-semibold text-xs text-txt-primary block leading-tight group-hover:text-primary transition-colors">
-                            {lead.fullName}
-                          </span>
-                          <span className="text-[11px] text-txt-muted flex items-center gap-1">
-                            <Building className="h-3 w-3 text-txt-muted shrink-0" />
-                            <span className="truncate max-w-[140px]">
-                              {lead.companyName || 'Individual'}
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-xs text-primary">
+                              {lead.nextAction.actionType}
                             </span>
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      {/* 2. Contact (Phone & Email) */}
-                      <TableCell>
-                        <div className="space-y-0.5 text-xs">
-                          <span className="text-txt-primary font-medium block leading-tight tabular-nums">
-                            {lead.phone}
-                          </span>
-                          <span className="text-[11px] text-txt-muted block truncate max-w-[150px]">
-                            {lead.email}
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      {/* 3. Source */}
-                      <TableCell>
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] font-semibold bg-slate-100 text-txt-secondary border border-border">
-                          {lead.source}
-                        </span>
-                      </TableCell>
-
-                      {/* 4. Status & Lead Score */}
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <StatusBadge status={lead.status} type="lead" />
-                          <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-txt-secondary tabular-nums">
-                            <Sparkles className="h-3 w-3 text-amber-500" />
-                            {lead.leadScore}
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      {/* 5. Service Line */}
-                      <TableCell>
-                        <span
-                          className="text-xs text-txt-primary truncate block max-w-[170px]"
-                          title={lead.serviceInterest}
-                        >
-                          {lead.serviceInterest}
-                        </span>
-                      </TableCell>
-
-                      {/* 6. Owner */}
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          <Avatar className="h-5 w-5">
-                            <AvatarFallback className="bg-primary-soft text-primary text-[9px] font-bold">
-                              {lead.ownerName
-                                .split(' ')
-                                .map((n) => n[0])
-                                .join('')}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="text-xs text-txt-primary truncate max-w-[100px]">
-                            {lead.ownerName}
-                          </span>
-                        </div>
-                      </TableCell>
-
-                      {/* 7. Next Action */}
-                      <TableCell>
-                        {lead.nextAction ? (
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-semibold text-xs text-primary">
-                                {lead.nextAction.actionType}
-                              </span>
-                              <span className="text-[11px] text-txt-muted tabular-nums">
-                                {lead.nextAction.time || formatDate(lead.nextAction.date)}
-                              </span>
-                            </div>
-                            <span
-                              className="text-[11px] text-txt-secondary truncate block max-w-[200px]"
-                              title={lead.nextAction.purpose}
-                            >
-                              {lead.nextAction.purpose}
+                            <span className="text-[11px] text-txt-muted tabular-nums">
+                              {lead.nextAction.time || formatDate(lead.nextAction.date)}
                             </span>
                           </div>
-                        ) : (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] font-medium bg-slate-100 text-txt-muted">
-                            No action scheduled
+                          <span
+                            className="text-[11px] text-txt-secondary truncate block max-w-[200px]"
+                            title={lead.nextAction.purpose}
+                          >
+                            {lead.nextAction.purpose}
                           </span>
-                        )}
-                      </TableCell>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] font-medium bg-slate-100 text-txt-muted">
+                          No action scheduled
+                        </span>
+                      )}
+                    </TableCell>
 
-                      {/* 8. Row Action */}
-                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <ActionMenu
-                          items={[
-                            {
-                              label: 'Edit Lead',
-                              icon: Edit,
-                              onClick: () => handleOpenEdit(lead),
+                    {/* 8. Row Actions */}
+                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Open Details Page',
+                            icon: ExternalLink,
+                            onClick: () => navigate(`/leads/${lead.id}`),
+                          },
+                          {
+                            label: 'Edit Lead',
+                            icon: Edit,
+                            onClick: () => handleOpenEdit(lead),
+                          },
+                          {
+                            label: 'Delete Lead',
+                            icon: Trash2,
+                            onClick: () => {
+                              setDeleteError(null);
+                              setDeletingLead(lead);
                             },
-                            {
-                              label: 'View Dossier',
-                              icon: ExternalLink,
-                              onClick: () => setSelectedLead(lead),
-                            },
-                            {
-                              label: `Call ${lead.phone}`,
-                              icon: Phone,
-                              onClick: () => alert(`Initiating click-to-call to ${lead.phone}`),
-                            },
-                            {
-                              label: 'Send WhatsApp',
-                              icon: MessageSquare,
-                              onClick: () => alert(`Opening WhatsApp thread with ${lead.phone}`),
-                            },
-                            {
-                              label: 'Send Email',
-                              icon: Mail,
-                              onClick: () => alert(`Opening email composer for ${lead.email}`),
-                            },
-                          ]}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            {/* Table Footer / Summary */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 border-t border-border text-xs text-txt-muted">
-              <span>
-                Showing <strong className="text-txt-primary tabular-nums">{filteredLeads.length}</strong> of{' '}
-                <strong className="text-txt-primary tabular-nums">{leads.length}</strong> leads
-              </span>
-              <span className="text-[11px]">Click any row to open the 360° prospect dossier</span>
-            </div>
+                          },
+                        ]}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
 
-          {/* Mobile Stacked Cards (Visible only on <640px) */}
-          <div className="sm:hidden space-y-3">
-            {filteredLeads.map((lead) => (
-              <div
-                key={lead.id}
-                onClick={() => setSelectedLead(lead)}
-                className="bg-white rounded-card border border-border p-3.5 space-y-2.5 shadow-card active:bg-slate-50 transition-colors"
-              >
-                {/* Header: Name + Status */}
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold text-xs text-txt-primary leading-tight">
-                      {lead.fullName}
-                    </h3>
-                    <p className="text-[11px] text-txt-muted">{lead.companyName || 'Individual'}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <StatusBadge status={lead.status} type="lead" />
-                    <span className="text-[11px] font-semibold text-txt-secondary tabular-nums">
-                      {lead.leadScore}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Service Interest */}
-                <div className="text-xs text-txt-secondary">
-                  <span className="text-[10px] uppercase font-semibold text-txt-muted tracking-wider block">
-                    Service
-                  </span>
-                  <span className="line-clamp-1">{lead.serviceInterest}</span>
-                </div>
-
-                {/* Next Action Pill */}
-                {lead.nextAction && (
-                  <div className="p-2 rounded-btn bg-slate-50 border border-border text-xs space-y-0.5">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-primary">
-                        Next: {lead.nextAction.actionType}
-                      </span>
-                      <span className="text-txt-muted tabular-nums">
-                        {lead.nextAction.time || formatDate(lead.nextAction.date)}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-txt-secondary truncate">
-                      {lead.nextAction.purpose}
-                    </p>
-                  </div>
-                )}
-
-                {/* Footer: Owner + Touchpoint Actions */}
-                <div
-                  className="flex items-center justify-between pt-2 border-t border-border"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center gap-1.5 text-xs text-txt-muted">
-                    <Avatar className="h-4 w-4">
-                      <AvatarFallback className="bg-primary-soft text-primary text-[8px] font-bold">
-                        {lead.ownerName
-                          .split(' ')
-                          .map((n) => n[0])
-                          .join('')}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-[11px] truncate max-w-[120px]">{lead.ownerName}</span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={() => handleOpenEdit(lead)}
-                      className="h-7 w-7 text-txt-muted hover:text-primary"
-                      aria-label="Edit lead"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="icon-sm"
-                      onClick={() => alert(`Calling ${lead.phone}`)}
-                      className="h-7 w-7 text-txt-muted hover:text-primary"
-                      aria-label="Call lead"
-                    >
-                      <Phone className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => setSelectedLead(lead)}
-                      className="h-7 text-xs px-2"
-                    >
-                      View
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
+          {/* Table Footer */}
+          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 border-t border-border text-xs text-txt-muted">
+            <span>
+              Showing <strong className="text-txt-primary tabular-nums">{filteredLeads.length}</strong> of{' '}
+              <strong className="text-txt-primary tabular-nums">{leads.length}</strong> leads
+            </span>
+            <span className="text-[11px]">Click any row to open the complete 360° Lead Details Page</span>
           </div>
-        </>
+        </div>
       )}
 
-      {/* 5. Lead 360° Dossier Preview Modal */}
-      <Dialog open={!!selectedLead} onOpenChange={(open) => !open && setSelectedLead(null)}>
-        {selectedLead && (
-          <DialogContent className="max-w-xl">
-            <DialogHeader>
-              <div className="flex items-center justify-between gap-3 pr-6">
-                <div>
-                  <DialogTitle className="text-base font-bold text-txt-primary flex items-center gap-2">
-                    {selectedLead.fullName}
-                    <StatusBadge status={selectedLead.status} type="lead" />
-                  </DialogTitle>
-                  <DialogDescription className="text-xs text-txt-muted mt-0.5">
-                    {selectedLead.title ? `${selectedLead.title} • ` : ''}
-                    {selectedLead.companyName || 'Independent Prospect'}
-                  </DialogDescription>
-                </div>
-                <div className="text-right">
-                  <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
-                    BANT Score
-                  </span>
-                  <span className="text-lg font-bold text-txt-primary tabular-nums">
-                    {selectedLead.leadScore}
-                    <span className="text-xs text-txt-muted font-normal">/100</span>
-                  </span>
-                </div>
-              </div>
-            </DialogHeader>
-
-            <div className="space-y-4 py-2 text-xs">
-              {/* Scheduled Next Action Banner */}
-              {selectedLead.nextAction ? (
-                <div className="p-3 rounded-card bg-[#F0FDF4] border border-[#BBF7D0] text-[#166534] flex items-start gap-2.5">
-                  <Calendar className="h-4 w-4 text-[#16A34A] shrink-0 mt-0.5" />
-                  <div className="space-y-0.5 flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-xs">
-                        Scheduled Next Action: {selectedLead.nextAction.actionType}
-                      </span>
-                      <span className="text-[11px] font-medium tabular-nums">
-                        {selectedLead.nextAction.time || formatDate(selectedLead.nextAction.date)}
-                      </span>
-                    </div>
-                    <p className="text-xs text-[#15803D]">{selectedLead.nextAction.purpose}</p>
-                    <p className="text-[10px] text-[#166534] pt-0.5">
-                      Assigned to: {selectedLead.nextAction.ownerName}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="p-2.5 rounded-card bg-slate-50 border border-border text-txt-muted text-xs flex items-center justify-between">
-                  <span>No scheduled next action</span>
-                </div>
-              )}
-
-              {/* Core Information Grid */}
-              <div className="grid grid-cols-2 gap-3 p-3 rounded-card bg-slate-50 border border-border">
-                <div className="space-y-1">
-                  <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
-                    Contact Phone
-                  </span>
-                  <a
-                    href={`tel:${selectedLead.phone}`}
-                    className="font-semibold text-txt-primary hover:text-primary transition-colors flex items-center gap-1.5"
-                  >
-                    <Phone className="h-3.5 w-3.5 text-txt-muted" />
-                    {selectedLead.phone}
-                  </a>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
-                    Email Address
-                  </span>
-                  <a
-                    href={`mailto:${selectedLead.email}`}
-                    className="font-medium text-txt-primary hover:text-primary transition-colors truncate block flex items-center gap-1.5"
-                  >
-                    <Mail className="h-3.5 w-3.5 text-txt-muted shrink-0" />
-                    <span className="truncate">{selectedLead.email}</span>
-                  </a>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
-                    Acquisition Source
-                  </span>
-                  <span className="font-medium text-txt-primary">{selectedLead.source}</span>
-                </div>
-
-                <div className="space-y-1">
-                  <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
-                    Account Owner
-                  </span>
-                  <span className="font-medium text-txt-primary flex items-center gap-1.5">
-                    <UserIcon className="h-3.5 w-3.5 text-txt-muted" />
-                    {selectedLead.ownerName}
-                  </span>
-                </div>
-              </div>
-
-              {/* Service Interest */}
-              <div className="space-y-1">
-                <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
-                  Service Interest & Commercial Requirement
-                </span>
-                <p className="p-2.5 rounded-btn border border-border bg-white text-txt-primary font-medium">
-                  {selectedLead.serviceInterest}
-                </p>
-              </div>
-
-              {/* Quick Communication Actions */}
-              <div className="flex items-center gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => alert(`Calling ${selectedLead.phone}`)}
-                  className="flex-1 h-8 text-xs cursor-pointer hover:border-primary hover:text-primary"
-                >
-                  <Phone className="mr-1.5 h-3.5 w-3.5" /> Call Prospect
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => alert(`Launching WhatsApp to ${selectedLead.phone}`)}
-                  className="flex-1 h-8 text-xs cursor-pointer hover:border-[#16A34A] hover:text-[#16A34A]"
-                >
-                  <MessageSquare className="mr-1.5 h-3.5 w-3.5" /> WhatsApp
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => alert(`Composing email to ${selectedLead.email}`)}
-                  className="flex-1 h-8 text-xs cursor-pointer hover:border-blue-500 hover:text-blue-600"
-                >
-                  <Mail className="mr-1.5 h-3.5 w-3.5" /> Email
-                </Button>
-              </div>
-            </div>
-
-            <DialogFooter className="flex items-center justify-between sm:justify-between w-full">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleOpenEdit(selectedLead)}
-                className="h-8 text-xs cursor-pointer"
-              >
-                <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit Details
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setSelectedLead(null)}
-                className="h-8 text-xs cursor-pointer"
-              >
-                Close
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        )}
-      </Dialog>
-
-      {/* 6. Create New Lead Modal */}
+      {/* MODAL: CREATE NEW LEAD */}
       <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -928,6 +913,20 @@ export const LeadsPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
+                <label className="text-caption text-txt-secondary block font-medium">Job Title</label>
+                <input
+                  type="text"
+                  value={newLeadForm.title}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, title: e.target.value })}
+                  placeholder="e.g. Managing Director"
+                  disabled={isSubmitting}
+                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">
                   Phone Number <span className="text-red-500">*</span>
                 </label>
@@ -941,20 +940,20 @@ export const LeadsPage: React.FC = () => {
                   className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
-            </div>
 
-            <div className="space-y-1">
-              <label className="text-caption text-txt-secondary block font-medium">
-                Email Address <span className="text-[11px] text-txt-muted font-normal">(Optional - will not save fake email if blank)</span>
-              </label>
-              <input
-                type="email"
-                value={newLeadForm.email}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
-                placeholder="rajesh@acmetech.in"
-                disabled={isSubmitting}
-                className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+              <div className="space-y-1">
+                <label className="text-caption text-txt-secondary block font-medium">
+                  Email Address <span className="text-[10px] text-txt-muted font-normal">(Optional)</span>
+                </label>
+                <input
+                  type="email"
+                  value={newLeadForm.email}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+                  placeholder="rajesh@acmetech.in"
+                  disabled={isSubmitting}
+                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2.5">
@@ -974,6 +973,7 @@ export const LeadsPage: React.FC = () => {
                   <option value="WHATSAPP">WHATSAPP</option>
                   <option value="MANUAL">MANUAL</option>
                   <option value="PHONE_INBOUND">PHONE_INBOUND</option>
+                  <option value="IMPORT">IMPORT</option>
                 </select>
               </div>
 
@@ -1006,7 +1006,6 @@ export const LeadsPage: React.FC = () => {
               />
             </div>
 
-            {/* Priority & Customer Temperature */}
             <div className="grid grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Customer Priority</label>
@@ -1046,27 +1045,40 @@ export const LeadsPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Follow-up / Next Action Setting ("follow data setting") */}
+            {/* Follow-up / Next Action Setting */}
             <div className="pt-2 border-t border-border/60 space-y-2">
               <span className="text-caption font-semibold text-txt-primary block">
                 Next Follow-Up / Action (Optional)
               </span>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                 <div className="space-y-1">
-                  <label className="text-[11px] text-txt-muted block">Follow-Up Date & Time</label>
+                  <label className="text-[11px] text-txt-muted block">Follow-Up Date</label>
                   <input
-                    type="datetime-local"
-                    value={newLeadForm.nextActionDueAt}
+                    type="date"
+                    value={newLeadForm.nextActionDate}
                     onChange={(e) =>
-                      setNewLeadForm({ ...newLeadForm, nextActionDueAt: e.target.value })
+                      setNewLeadForm({ ...newLeadForm, nextActionDate: e.target.value })
                     }
                     disabled={isSubmitting}
-                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
                   />
                 </div>
 
                 <div className="space-y-1">
+                  <label className="text-[11px] text-txt-muted block">Time (Optional)</label>
+                  <input
+                    type="time"
+                    value={newLeadForm.nextActionTime}
+                    onChange={(e) =>
+                      setNewLeadForm({ ...newLeadForm, nextActionTime: e.target.value })
+                    }
+                    disabled={isSubmitting}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                  />
+                </div>
+
+                <div className="space-y-1 col-span-2 sm:col-span-1">
                   <label className="text-[11px] text-txt-muted block">Action Type</label>
                   <select
                     value={newLeadForm.nextActionType}
@@ -1134,7 +1146,7 @@ export const LeadsPage: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* 7. Edit Lead Modal */}
+      {/* MODAL: EDIT LEAD */}
       <Dialog open={!!editingLead} onOpenChange={(open) => !open && setEditingLead(null)}>
         {editingLead && (
           <DialogContent className="max-w-md">
@@ -1180,6 +1192,19 @@ export const LeadsPage: React.FC = () => {
                 </div>
 
                 <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Job Title</label>
+                  <input
+                    type="text"
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    disabled={isEditSubmitting}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
                   <label className="text-caption text-txt-secondary block font-medium">
                     Phone Number <span className="text-red-500">*</span>
                   </label>
@@ -1192,17 +1217,17 @@ export const LeadsPage: React.FC = () => {
                     className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">Email Address</label>
-                <input
-                  type="email"
-                  value={editForm.email}
-                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                  disabled={isEditSubmitting}
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Email Address</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                    disabled={isEditSubmitting}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -1214,6 +1239,40 @@ export const LeadsPage: React.FC = () => {
                   disabled={isEditSubmitting}
                   className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Priority</label>
+                  <select
+                    value={editForm.priority}
+                    onChange={(e) => setEditForm({ ...editForm, priority: e.target.value as TaskPriority })}
+                    disabled={isEditSubmitting}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                    <option value="URGENT">URGENT</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Temperature</label>
+                  <select
+                    value={editForm.temperature}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, temperature: e.target.value as '' | 'HOT' | 'WARM' | 'COLD' })
+                    }
+                    disabled={isEditSubmitting}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                  >
+                    <option value="">None (Unrated)</option>
+                    <option value="HOT">HOT</option>
+                    <option value="WARM">WARM</option>
+                    <option value="COLD">COLD</option>
+                  </select>
+                </div>
               </div>
 
               <DialogFooter className="pt-2">
@@ -1233,18 +1292,229 @@ export const LeadsPage: React.FC = () => {
                   disabled={isEditSubmitting}
                   className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
                 >
-                  {isEditSubmitting ? (
-                    <>
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Saving...
-                    </>
-                  ) : (
-                    'Save Changes'
-                  )}
+                  {isEditSubmitting ? 'Saving...' : 'Save Changes'}
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         )}
+      </Dialog>
+
+      {/* MODAL: DELETE CONFIRMATION */}
+      <Dialog open={!!deletingLead} onOpenChange={(open) => !open && setDeletingLead(null)}>
+        {deletingLead && (
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="text-sm font-bold text-red-600 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4" /> Delete Lead Record
+              </DialogTitle>
+              <DialogDescription className="text-xs text-txt-muted">
+                Are you sure you want to delete <strong>{deletingLead.fullName}</strong>?
+              </DialogDescription>
+            </DialogHeader>
+
+            {deleteError && (
+              <div className="p-2.5 rounded-btn bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#DC2626]">
+                {deleteError}
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setDeletingLead(null)}
+                disabled={isDeleteSubmitting}
+                className="h-8 text-xs cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDeleteLead}
+                disabled={isDeleteSubmitting}
+                className="h-8 text-xs bg-red-600 hover:bg-red-700 text-white cursor-pointer"
+              >
+                {isDeleteSubmitting ? 'Deleting...' : 'Confirm Delete'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      {/* MODAL: IMPORT CSV */}
+      <Dialog open={isImportModalOpen} onOpenChange={setIsImportModalOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-section-title text-txt-primary flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-[#57B71B]" /> Import Leads from CSV
+            </DialogTitle>
+            <DialogDescription className="text-xs text-txt-muted">
+              Upload a CSV file matching the Lead creation fields. Empty optional fields are kept blank without synthetic defaults.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2 text-xs">
+            {/* Step 1: Download Template */}
+            <div className="p-3 rounded-card bg-slate-50 border border-border flex items-center justify-between">
+              <div>
+                <h4 className="font-bold text-xs text-txt-primary">Need the standard CSV template?</h4>
+                <p className="text-[11px] text-txt-muted">
+                  Download a pre-formatted template with all columns ready to fill.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadTemplate}
+                className="h-8 text-xs cursor-pointer border-border hover:bg-white"
+              >
+                <Download className="mr-1.5 h-3.5 w-3.5 text-txt-muted" /> Template
+              </Button>
+            </div>
+
+            {/* Step 2: Upload Input */}
+            <div className="space-y-1.5">
+              <label className="text-caption text-txt-secondary block font-medium">Select CSV File</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={handleFileUpload}
+                disabled={isSubmitting}
+                className="w-full text-xs text-txt-primary file:mr-3 file:py-1.5 file:px-3 file:rounded-btn file:border file:border-border file:text-xs file:font-semibold file:bg-slate-50 hover:file:bg-slate-100 cursor-pointer"
+              />
+            </div>
+
+            {importError && (
+              <div className="p-2.5 rounded-btn bg-[#FEF2F2] border border-[#FECACA] flex items-start gap-2 text-xs text-[#DC2626]">
+                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <span>{importError}</span>
+              </div>
+            )}
+
+            {/* Step 3: Preview Table */}
+            {importRows.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-txt-primary">
+                    Preview ({importRows.length} rows detected)
+                  </span>
+                  <span className="text-[11px] text-txt-muted">
+                    Empty columns will remain blank in PostgreSQL
+                  </span>
+                </div>
+
+                <div className="max-h-48 overflow-y-auto border border-border rounded-btn">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-slate-100 sticky top-0">
+                      <tr>
+                        <th className="p-1.5 text-left font-semibold">#</th>
+                        <th className="p-1.5 text-left font-semibold">Name</th>
+                        <th className="p-1.5 text-left font-semibold">Company</th>
+                        <th className="p-1.5 text-left font-semibold">Phone</th>
+                        <th className="p-1.5 text-left font-semibold">Email</th>
+                        <th className="p-1.5 text-left font-semibold">Source</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {importRows.slice(0, 5).map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="p-1.5 text-txt-muted">{idx + 1}</td>
+                          <td className="p-1.5 font-medium text-txt-primary">{row.fullName}</td>
+                          <td className="p-1.5 text-txt-muted">{row.companyName || '—'}</td>
+                          <td className="p-1.5 text-txt-primary">{row.phone}</td>
+                          <td className="p-1.5 text-txt-muted">{row.email || '—'}</td>
+                          <td className="p-1.5 text-txt-secondary">{row.source}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {importRows.length > 5 && (
+                  <p className="text-[10px] text-txt-muted text-right">
+                    ...and {importRows.length - 5} more rows
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Progress indicator */}
+            {importProgress && isSubmitting && (
+              <div className="space-y-1 p-3 rounded-btn bg-[#F0FDF4] border border-[#BBF7D0]">
+                <div className="flex items-center justify-between text-xs text-[#166534] font-semibold">
+                  <span>Importing leads into PostgreSQL...</span>
+                  <span>
+                    {importProgress.current} / {importProgress.total}
+                  </span>
+                </div>
+                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className="bg-[#22C55E] h-1.5 transition-all duration-200"
+                    style={{
+                      width: `${(importProgress.current / importProgress.total) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Import Results Summary */}
+            {importResult && (
+              <div className="p-3 rounded-card bg-slate-50 border border-border space-y-2">
+                <div className="flex items-center gap-2 text-xs">
+                  <CheckCircle2 className="h-4 w-4 text-[#16A34A]" />
+                  <span className="font-semibold text-txt-primary">
+                    Import Completed: {importResult.success} leads created successfully
+                  </span>
+                </div>
+                {importResult.failed > 0 && (
+                  <div className="text-[11px] text-red-600 space-y-1">
+                    <p className="font-medium">{importResult.failed} rows failed to import:</p>
+                    <ul className="list-disc pl-4 max-h-24 overflow-y-auto space-y-0.5">
+                      {importResult.errors.map((err, idx) => (
+                        <li key={idx}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsImportModalOpen(false)}
+              disabled={isSubmitting}
+              className="h-8 text-xs cursor-pointer"
+            >
+              {importResult ? 'Done' : 'Cancel'}
+            </Button>
+            {importRows.length > 0 && !importResult && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleExecuteImport}
+                disabled={isSubmitting}
+                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Importing...
+                  </>
+                ) : (
+                  `Import ${importRows.length} Leads`
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
       </Dialog>
     </div>
   );

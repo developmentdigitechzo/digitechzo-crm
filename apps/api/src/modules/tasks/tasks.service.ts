@@ -531,6 +531,55 @@ export class TasksService {
       }
     }
 
+    // Auto-advance Stage 1 Deal to Stage 2 (Discovery) on task completion
+    try {
+      const targetLeadId = existing.leadId;
+      const targetDealId = existing.dealId;
+      if (targetLeadId || targetDealId) {
+        const whereClause: any = {
+          organizationId: user.organizationId,
+          deletedAt: null,
+          status: 'OPEN',
+        };
+        if (targetDealId) {
+          whereClause.id = targetDealId;
+        } else if (targetLeadId) {
+          whereClause.leadId = targetLeadId;
+        }
+
+        const activeDeal: any = await this.prisma.deal.findFirst({
+          where: whereClause,
+          include: { stage: true },
+        });
+
+        if (activeDeal && activeDeal.stage?.order === 1) {
+          const stage2 = await this.prisma.pipelineStage.findFirst({
+            where: { order: 2 },
+          });
+          if (stage2) {
+            await this.prisma.deal.update({
+              where: { id: activeDeal.id },
+              data: { stageId: stage2.id },
+            });
+            await this.auditService.record({
+              organizationId: user.organizationId,
+              userId: user.userId,
+              action: 'DEAL_STAGE_CHANGED',
+              resource: 'deals',
+              resourceId: activeDeal.id,
+              details: {
+                previousStageId: activeDeal.stageId,
+                newStageId: stage2.id,
+                reason: 'Auto-advanced to Discovery on task/follow-up completion',
+              },
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(`Failed to auto-advance deal on task completion: ${e.message}`);
+    }
+
     // Sync lead next action
     if (existing.leadId) {
       await this.syncLeadNextAction(existing.leadId, user.organizationId);

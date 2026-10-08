@@ -154,12 +154,13 @@ export async function seedDatabase() {
 
   // 5. Reference Pipeline Stages
   const stages = [
-    { name: 'Qualification', order: 1, stageType: 'OPEN', dealCountBenchmark: 8, totalValueBenchmark: 2400000 },
-    { name: 'Discovery', order: 2, stageType: 'OPEN', dealCountBenchmark: 5, totalValueBenchmark: 1750000 },
-    { name: 'Proposal Sent', order: 3, stageType: 'OPEN', dealCountBenchmark: 4, totalValueBenchmark: 1600000 },
-    { name: 'Negotiation', order: 4, stageType: 'OPEN', dealCountBenchmark: 3, totalValueBenchmark: 1200000 },
-    { name: 'Closed Won', order: 5, stageType: 'WON', dealCountBenchmark: 2, totalValueBenchmark: 950000 },
-    { name: 'Closed Lost', order: 6, stageType: 'LOST', dealCountBenchmark: 6, totalValueBenchmark: 1850000 },
+    { name: 'New Lead (Qualification)', order: 1, stageType: 'OPEN', dealCountBenchmark: 8, totalValueBenchmark: 2400000 },
+    { name: 'Discovery & Requirement Discussion', order: 2, stageType: 'OPEN', dealCountBenchmark: 5, totalValueBenchmark: 1750000 },
+    { name: 'Demo / Meeting Completed', order: 3, stageType: 'OPEN', dealCountBenchmark: 4, totalValueBenchmark: 1600000 },
+    { name: 'Proposal Sent', order: 4, stageType: 'OPEN', dealCountBenchmark: 4, totalValueBenchmark: 1500000 },
+    { name: 'Negotiation', order: 5, stageType: 'OPEN', dealCountBenchmark: 3, totalValueBenchmark: 1200000 },
+    { name: 'Closed Won', order: 6, stageType: 'WON', dealCountBenchmark: 2, totalValueBenchmark: 950000 },
+    { name: 'Closed Lost', order: 7, stageType: 'LOST', dealCountBenchmark: 6, totalValueBenchmark: 1850000 },
   ];
   for (const s of stages) {
     const existing = await prisma.pipelineStage.findFirst({ where: { order: s.order } });

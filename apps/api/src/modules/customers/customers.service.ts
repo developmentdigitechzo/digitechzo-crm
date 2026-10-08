@@ -195,11 +195,17 @@ export class CustomersService {
       targetOwnerId = dto.ownerId;
     }
 
+    // Verify mandatory source lead
+    const lead = await this.prisma.lead.findFirst({
+      where: { id: dto.leadId, organizationId: user.organizationId, deletedAt: null },
+    });
+    if (!lead) throw new BadRequestException('Associated originating lead not found or inactive');
+
     const customer = await this.prisma.customer.create({
       data: {
         organizationId: user.organizationId,
         ownerId: targetOwnerId,
-        leadId: dto.leadId || null,
+        leadId: dto.leadId,
         dealId: dto.dealId || null,
         companyName: dto.companyName,
         contactName: dto.contactName,
@@ -222,13 +228,11 @@ export class CustomersService {
       },
     });
 
-    // If source lead was provided, advance lead status to CONVERTED if it was active
-    if (dto.leadId) {
-      await this.prisma.lead.update({
-        where: { id: dto.leadId },
-        data: { status: 'CONVERTED', lastActivityAt: new Date() },
-      });
-    }
+    // Advance source lead status to CONVERTED
+    await this.prisma.lead.update({
+      where: { id: dto.leadId },
+      data: { status: 'CONVERTED', lastActivityAt: new Date() },
+    });
 
     await this.auditService.record({
       organizationId: user.organizationId,

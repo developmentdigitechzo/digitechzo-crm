@@ -57,6 +57,12 @@ export const TasksPage: React.FC = () => {
   // Modals state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
+  const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
+  const [taskForOutcome, setTaskForOutcome] = useState<TaskItem | null>(null);
+  const [outcomeForm, setOutcomeForm] = useState({
+    outcome: 'CONNECTED_INTERESTED',
+    notes: '',
+  });
 
   // Form state for scheduling task
   const [newTaskForm, setNewTaskForm] = useState({
@@ -212,6 +218,73 @@ export const TasksPage: React.FC = () => {
   }, [tasks, filterType, priorityFilter, ownerFilter, searchQuery]);
 
   // Task interaction handlers
+  const handleOpenOutcomeModal = (task: TaskItem) => {
+    setTaskForOutcome(task);
+    setOutcomeForm({
+      outcome: task.actionType === 'CALL' ? 'CONNECTED_INTERESTED' : 'MESSAGE_SENT',
+      notes: '',
+    });
+    setIsOutcomeModalOpen(true);
+  };
+
+  const handleLogOutcomeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskForOutcome) return;
+    setIsSubmitting(true);
+    try {
+      // 1. Complete Task
+      await crmApi.completeTask(taskForOutcome.id, {
+        completionNotes: `Outcome: ${outcomeForm.outcome}. Notes: ${outcomeForm.notes || 'Completed via tasks action queue'}`,
+        createActivity: true,
+      });
+
+      // 2. If task is linked to lead, update lead status and temperature
+      if (taskForOutcome.leadId) {
+        try {
+          await crmApi.updateLeadStatus(taskForOutcome.leadId, 'CONTACTED');
+        } catch {}
+
+        if (outcomeForm.outcome === 'CONNECTED_INTERESTED') {
+          try {
+            await crmApi.updateLead(taskForOutcome.leadId, { temperature: 'HOT' });
+          } catch {}
+        }
+      }
+
+      // 3. Advance linked deal from Stage 1 to Stage 2 if task has deal/lead
+      if (taskForOutcome.leadId) {
+        try {
+          const dealsRes = await crmApi.getDeals({ leadId: taskForOutcome.leadId, limit: 10 });
+          const deals = dealsRes?.items || dealsRes?.data || [];
+          const activeDeal = deals.find((d: any) => d.status === 'OPEN');
+          if (activeDeal && (activeDeal.stage?.order === 1 || !activeDeal.stageId)) {
+            const stages = await crmApi.getPipelineStages();
+            const stage2 = stages.find((s: any) => s.order === 2);
+            if (stage2) {
+              await crmApi.updateDealStage(activeDeal.id, stage2.id);
+            }
+          }
+        } catch {}
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
+      ]);
+
+      setIsOutcomeModalOpen(false);
+      setTaskForOutcome(null);
+      setOutcomeForm({ outcome: 'CONNECTED_INTERESTED', notes: '' });
+    } catch (err: any) {
+      alert(`Failed to log task outcome: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleToggleComplete = async (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
@@ -224,10 +297,29 @@ export const TasksPage: React.FC = () => {
           completionNotes: 'Completed from tasks action queue',
           createActivity: true,
         });
+
+        // Advance linked deal from Stage 1 to Stage 2 if task has lead
+        if (task.leadId) {
+          try {
+            const dealsRes = await crmApi.getDeals({ leadId: task.leadId, limit: 10 });
+            const deals = dealsRes?.items || dealsRes?.data || [];
+            const activeDeal = deals.find((d: any) => d.status === 'OPEN');
+            if (activeDeal && (activeDeal.stage?.order === 1 || !activeDeal.stageId)) {
+              const stages = await crmApi.getPipelineStages();
+              const stage2 = stages.find((s: any) => s.order === 2);
+              if (stage2) {
+                await crmApi.updateDealStage(activeDeal.id, stage2.id);
+              }
+            }
+          } catch {}
+        }
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['tasks'] }),
         queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
       ]);
     } catch (err: any) {
       console.error('Failed to toggle completion status:', err);
@@ -675,7 +767,7 @@ export const TasksPage: React.FC = () => {
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-txt-secondary">
                           {task.leadName && (
                             <Link
-                              to="/leads"
+                              to={task.leadId ? `/leads/${task.leadId}` : '/leads'}
                               className="flex items-center gap-1 truncate font-medium text-txt-secondary hover:text-[#57B71B] transition-colors"
                             >
                               <Building2 className="h-3 w-3 text-txt-muted shrink-0" />
@@ -713,10 +805,10 @@ export const TasksPage: React.FC = () => {
                         <Button
                           size="sm"
                           variant="secondary"
-                          className="h-7 text-xs px-2.5 bg-slate-100 hover:bg-slate-200 text-txt-primary font-semibold shrink-0 cursor-pointer"
-                          asChild
+                          onClick={() => handleOpenOutcomeModal(task)}
+                          className="h-7 text-xs px-2.5 bg-[#57B71B]/10 hover:bg-[#57B71B]/20 text-[#57B71B] font-semibold shrink-0 cursor-pointer"
                         >
-                          <Link to="/activities">Log Outcome</Link>
+                          Log Outcome
                         </Button>
 
                         <ActionMenu
@@ -729,9 +821,7 @@ export const TasksPage: React.FC = () => {
                             {
                               label: 'Log Outcome',
                               icon: ExternalLink,
-                              onClick: () => {
-                                window.location.hash = '/activities';
-                              },
+                              onClick: () => handleOpenOutcomeModal(task),
                             },
                             {
                               label: 'Reschedule (+1 Day)',
@@ -832,7 +922,16 @@ export const TasksPage: React.FC = () => {
                           </div>
                         </TableCell>
                         <TableCell className="py-2.5 text-xs text-txt-secondary font-medium">
-                          {task.leadName || '—'}
+                          {task.leadName ? (
+                            <Link
+                              to={task.leadId ? `/leads/${task.leadId}` : '/leads'}
+                              className="font-medium text-txt-secondary hover:text-[#57B71B] transition-colors"
+                            >
+                              {task.leadName}
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
                         </TableCell>
                         <TableCell className="py-2.5">
                           <StatusBadge status={task.priority} type="priority" />
@@ -858,10 +957,10 @@ export const TasksPage: React.FC = () => {
                             <Button
                               size="sm"
                               variant="secondary"
-                              className="h-6 text-[11px] px-2 bg-slate-100 hover:bg-slate-200 text-txt-primary font-semibold"
-                              asChild
+                              onClick={() => handleOpenOutcomeModal(task)}
+                              className="h-6 text-[11px] px-2 bg-[#57B71B]/10 hover:bg-[#57B71B]/20 text-[#57B71B] font-semibold cursor-pointer"
                             >
-                              <Link to="/activities">Log</Link>
+                              Log
                             </Button>
                             <ActionMenu
                               items={[
@@ -869,6 +968,11 @@ export const TasksPage: React.FC = () => {
                                   label: isCompleted ? 'Mark Pending' : 'Mark Completed',
                                   icon: Check,
                                   onClick: () => handleToggleComplete(task.id),
+                                },
+                                {
+                                  label: 'Log Outcome',
+                                  icon: ExternalLink,
+                                  onClick: () => handleOpenOutcomeModal(task),
                                 },
                                 {
                                   label: 'Reschedule (+1 Day)',
@@ -977,7 +1081,7 @@ export const TasksPage: React.FC = () => {
                 <option value="">None / General Task</option>
                 {leads.map((lead: any) => (
                   <option key={lead.id} value={lead.id}>
-                    {lead.fullName} {lead.companyName ? `(${lead.companyName})` : ''}
+                    {lead.companyName ? `${lead.companyName}${lead.fullName ? ` (${lead.fullName})` : ''}` : lead.fullName || 'Prospect'} {lead.phone ? `• ${lead.phone}` : ''}
                   </option>
                 ))}
               </select>
@@ -1107,16 +1211,88 @@ export const TasksPage: React.FC = () => {
                 <Button
                   size="sm"
                   className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
-                  asChild
+                  onClick={() => {
+                    const task = selectedTask;
+                    setSelectedTask(null);
+                    handleOpenOutcomeModal(task);
+                  }}
                 >
-                  <Link to="/activities" onClick={() => setSelectedTask(null)}>
-                    Log Outcome
-                  </Link>
+                  Log Outcome
                 </Button>
               </div>
             </DialogFooter>
           </DialogContent>
         )}
+      </Dialog>
+
+      {/* 8. Log Outcome Modal */}
+      <Dialog open={isOutcomeModalOpen} onOpenChange={setIsOutcomeModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-section-title text-txt-primary flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-[#57B71B]" /> Log Task Outcome & Complete
+            </DialogTitle>
+            <DialogDescription className="text-xs text-txt-muted">
+              {taskForOutcome ? `Recording outcome for "${taskForOutcome.title}"` : 'Record action outcome'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleLogOutcomeSubmit} className="space-y-3 py-2 text-xs">
+            <div className="space-y-1">
+              <label className="text-caption text-txt-secondary block font-medium">Outcome Status</label>
+              <select
+                value={outcomeForm.outcome}
+                onChange={(e) => setOutcomeForm({ ...outcomeForm, outcome: e.target.value })}
+                disabled={isSubmitting}
+                className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="CONNECTED_INTERESTED">Connected - Interested & Exploring</option>
+                <option value="CONNECTED_CALLBACK">Connected - Requested Callback</option>
+                <option value="CONNECTED_MEETING_BOOKED">Connected - Discovery Meeting Booked</option>
+                <option value="MESSAGE_SENT">Message / Pitch Sent</option>
+                <option value="NO_ANSWER">No Answer / Left Voicemail</option>
+                <option value="BUSY">Busy</option>
+                <option value="CONNECTED_NOT_INTERESTED">Connected - Not Interested</option>
+                <option value="COMPLETED">Task Completed</option>
+              </select>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-caption text-txt-secondary block font-medium">
+                Outcome Notes <span className="text-[10px] text-txt-muted font-normal">(Optional)</span>
+              </label>
+              <textarea
+                rows={3}
+                value={outcomeForm.notes}
+                onChange={(e) => setOutcomeForm({ ...outcomeForm, notes: e.target.value })}
+                placeholder="What was discussed or concluded?"
+                disabled={isSubmitting}
+                className="w-full rounded-input border border-border bg-white p-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsOutcomeModalOpen(false)}
+                disabled={isSubmitting}
+                className="h-8 text-xs cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isSubmitting}
+                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer font-semibold"
+              >
+                {isSubmitting ? 'Saving...' : 'Confirm & Complete'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
       </Dialog>
     </div>
   );

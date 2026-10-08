@@ -92,10 +92,11 @@ export class CreateCustomerDto {
   @IsEnum(CustomerStatusEnum)
   status?: CustomerStatusEnum = CustomerStatusEnum.ACTIVE;
 
-  @ApiPropertyOptional({ description: 'Source lead UUID for historical linkage' })
-  @IsOptional()
-  @IsUUID('4')
-  leadId?: string;
+  @ApiProperty({ description: 'Originating Lead UUID for master sales record traceability' })
+  @IsString()
+  @IsNotEmpty({ message: 'leadId is required for every customer' })
+  @IsUUID('4', { message: 'leadId must be a valid UUIDv4' })
+  leadId: string;
 
   @ApiPropertyOptional({ description: 'Converted deal UUID for revenue reference' })
   @IsOptional()

@@ -40,10 +40,11 @@ export class CreateProposalDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   description?: string;
 
-  @ApiPropertyOptional({ description: 'Associated lead UUID' })
-  @IsOptional()
-  @IsUUID('4')
-  leadId?: string;
+  @ApiProperty({ description: 'Associated originating Lead UUID for master sales record traceability' })
+  @IsString()
+  @IsNotEmpty({ message: 'leadId is required for every proposal' })
+  @IsUUID('4', { message: 'leadId must be a valid UUIDv4' })
+  leadId: string;
 
   @ApiPropertyOptional({ description: 'Associated deal UUID' })
   @IsOptional()

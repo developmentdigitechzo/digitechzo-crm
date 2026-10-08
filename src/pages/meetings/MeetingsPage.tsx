@@ -332,6 +332,8 @@ export const MeetingsPage: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['activities'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard-activities'] }),
         queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
       ]);
 
       setIsScheduleModalOpen(false);
@@ -387,6 +389,8 @@ export const MeetingsPage: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['activities'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard-activities'] }),
         queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
       ]);
 
       setOutcomeModalMeeting(null);
@@ -943,7 +947,7 @@ export const MeetingsPage: React.FC = () => {
                 <option value="">None / General Session</option>
                 {leads.map((lead: any) => (
                   <option key={lead.id} value={lead.id}>
-                    {lead.fullName} {lead.companyName ? `(${lead.companyName})` : ''}
+                    {lead.companyName ? `${lead.companyName}${lead.fullName ? ` (${lead.fullName})` : ''}` : lead.fullName || 'Prospect'} {lead.phone ? `• ${lead.phone}` : ''}
                   </option>
                 ))}
               </select>
