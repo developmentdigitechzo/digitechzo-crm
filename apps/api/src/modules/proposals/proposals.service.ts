@@ -61,6 +61,10 @@ export class ProposalsService {
       deal: p.deal
         ? { id: p.deal.id, title: p.deal.title }
         : undefined,
+      customerCreated: p.customerCreated,
+      customerExisted: p.customerExisted,
+      customerId: p.customerId,
+      message: p.message,
     };
   }
 
@@ -440,11 +444,241 @@ export class ProposalsService {
 
     if (dto.status === ProposalStatusEnum.SENT && !existing.sentAt) {
       updateData.sentAt = now;
-    } else if (dto.status === ProposalStatusEnum.ACCEPTED) {
-      updateData.acceptedAt = now;
     } else if (dto.status === ProposalStatusEnum.REJECTED) {
       updateData.rejectedAt = now;
       if (dto.rejectionReason) updateData.rejectionReason = dto.rejectionReason;
+    }
+
+    if (dto.status === ProposalStatusEnum.ACCEPTED) {
+      updateData.acceptedAt = now;
+
+      // Atomic transition: Update proposal, advance deal & lead, create/link customer
+      const result = await this.prisma.$transaction(async (tx) => {
+        const currentProposal = await tx.proposal.findUnique({
+          where: { id },
+          include: {
+            lead: true,
+            deal: true,
+            owner: { select: { id: true, name: true, email: true } },
+            creator: { select: { id: true, name: true, email: true } },
+          },
+        });
+
+        if (!currentProposal) {
+          throw new NotFoundException(`Proposal ${id} not found`);
+        }
+
+        const updated = await tx.proposal.update({
+          where: { id },
+          data: updateData,
+          include: {
+            owner: { select: { id: true, name: true, email: true } },
+            creator: { select: { id: true, name: true, email: true } },
+            lead: { select: { id: true, fullName: true, companyName: true } },
+            deal: { select: { id: true, title: true } },
+          },
+        });
+
+        const targetLeadId = currentProposal.leadId;
+        const targetDealId = currentProposal.dealId;
+        let activeDeal: any = null;
+
+        if (targetDealId || targetLeadId) {
+          const dealWhere: any = {
+            organizationId: user.organizationId,
+            deletedAt: null,
+          };
+          if (targetDealId) {
+            dealWhere.id = targetDealId;
+          } else if (targetLeadId) {
+            dealWhere.leadId = targetLeadId;
+          }
+
+          activeDeal = await tx.deal.findFirst({
+            where: dealWhere,
+            include: { stage: true },
+          });
+
+          if (activeDeal) {
+            const wonStage = (await tx.pipelineStage.findFirst({
+              where: { stageType: 'WON' },
+            })) || (await tx.pipelineStage.findFirst({
+              where: { name: { contains: 'Won', mode: 'insensitive' } },
+            }));
+
+            const dealUpdateData: any = {
+              status: 'WON',
+              closedAt: now,
+              wonNotes: `Closed Won upon acceptance of proposal ${currentProposal.proposalNumber}`,
+              value: new Prisma.Decimal(updated.totalAmount),
+            };
+            if (wonStage) {
+              dealUpdateData.stageId = wonStage.id;
+            }
+
+            await tx.deal.update({
+              where: { id: activeDeal.id },
+              data: dealUpdateData,
+            });
+
+            if (!currentProposal.dealId) {
+              await tx.proposal.update({
+                where: { id: currentProposal.id },
+                data: { dealId: activeDeal.id },
+              });
+            }
+          }
+        }
+
+        const lead =
+          currentProposal.lead ||
+          (targetLeadId ? await tx.lead.findUnique({ where: { id: targetLeadId } }) : null);
+
+        if (lead) {
+          await tx.lead.update({
+            where: { id: lead.id },
+            data: {
+              status: 'CONVERTED',
+              lastActivityAt: now,
+            },
+          });
+        }
+
+        let customer: any = null;
+        let customerCreated = false;
+        let customerExisted = false;
+
+        if (lead) {
+          const orConditions: any[] = [{ leadId: lead.id }];
+          if (lead.email && lead.email.trim()) {
+            orConditions.push({
+              email: { equals: lead.email.trim(), mode: 'insensitive' as Prisma.QueryMode },
+            });
+          }
+
+          customer = await tx.customer.findFirst({
+            where: {
+              organizationId: user.organizationId,
+              OR: orConditions,
+            },
+            orderBy: { createdAt: 'desc' },
+          });
+
+          const formattedAmount = `₹${Number(updated.totalAmount).toLocaleString('en-IN')}`;
+          const proposalSummary = `Accepted Proposal: ${currentProposal.proposalNumber} (${currentProposal.title}) - ${formattedAmount}`;
+          const serviceSummary = lead.serviceInterest
+            ? `Service: ${lead.serviceInterest}`
+            : activeDeal?.title
+            ? `Deal: ${activeDeal.title}`
+            : '';
+          const combinedNote = [serviceSummary, proposalSummary].filter(Boolean).join(' | ');
+
+          if (!customer) {
+            const companyName = lead.companyName?.trim() || lead.fullName?.trim() || currentProposal.title;
+            const contactName = lead.fullName?.trim() || lead.companyName?.trim() || 'Primary Contact';
+            const email = lead.email?.trim() || 'client@digitechzo.com';
+            const phone = lead.phone?.trim() || '—';
+            const ownerId = currentProposal.ownerId || lead.ownerId || user.userId;
+            const dealId = activeDeal?.id || currentProposal.dealId || null;
+
+            customer = await tx.customer.create({
+              data: {
+                organizationId: user.organizationId,
+                leadId: lead.id,
+                dealId,
+                companyName,
+                contactName,
+                email,
+                phone,
+                status: 'ACTIVE',
+                ownerId,
+                notes: combinedNote,
+                customerSince: now,
+              },
+              include: {
+                owner: { select: { id: true, name: true, email: true } },
+                lead: { select: { id: true, fullName: true } },
+                deal: { select: { id: true, title: true, value: true } },
+              },
+            });
+            customerCreated = true;
+          } else {
+            customerExisted = true;
+            const dealIdToLink = activeDeal?.id || currentProposal.dealId || customer.dealId;
+            const existingNotes = customer.notes || '';
+            const updatedNotes = existingNotes.includes(currentProposal.proposalNumber)
+              ? existingNotes
+              : existingNotes
+              ? `${existingNotes}\n\n${combinedNote}`
+              : combinedNote;
+
+            customer = await tx.customer.update({
+              where: { id: customer.id },
+              data: {
+                ...(dealIdToLink ? { dealId: dealIdToLink } : {}),
+                notes: updatedNotes,
+                status: 'ACTIVE',
+                deletedAt: null,
+              },
+              include: {
+                owner: { select: { id: true, name: true, email: true } },
+                lead: { select: { id: true, fullName: true } },
+                deal: { select: { id: true, title: true, value: true } },
+              },
+            });
+          }
+        }
+
+        return {
+          updated,
+          activeDeal,
+          customer,
+          customerCreated,
+          customerExisted,
+        };
+      });
+
+      if (result.customerCreated && result.customer) {
+        await this.auditService.record({
+          organizationId: user.organizationId,
+          userId: user.userId,
+          action: 'CUSTOMER_CREATED',
+          resource: 'customers',
+          resourceId: result.customer.id,
+          details: {
+            companyName: result.customer.companyName,
+            contactName: result.customer.contactName,
+            source: 'PROPOSAL_ACCEPTED',
+            proposalId: result.updated.id,
+            proposalNumber: existing.proposalNumber,
+          },
+        });
+      }
+
+      await this.auditService.record({
+        organizationId: user.organizationId,
+        userId: user.userId,
+        action: 'PROPOSAL_STATUS_ACCEPTED',
+        resource: 'proposals',
+        resourceId: result.updated.id,
+        details: {
+          previousStatus: existing.status,
+          newStatus: 'ACCEPTED',
+          customerCreated: result.customerCreated,
+          customerExisted: result.customerExisted,
+          customerId: result.customer?.id,
+        },
+      });
+
+      const responseDto = this.mapToResponseDto(result.updated);
+      responseDto.customerCreated = result.customerCreated;
+      responseDto.customerExisted = result.customerExisted;
+      responseDto.customerId = result.customer?.id;
+      responseDto.message = result.customerCreated
+        ? 'Proposal accepted successfully. Customer account created.'
+        : 'Proposal accepted successfully. Linked to existing customer account.';
+
+      return responseDto;
     }
 
     const updated = await this.prisma.proposal.update({
@@ -533,6 +767,122 @@ export class ProposalsService {
       }
     }
 
+    // When proposal is DECLINED/REJECTED — remove the linked customer (if created from this lead)
+    if (dto.status === ProposalStatusEnum.REJECTED) {
+      try {
+        const targetLeadId = existing.leadId;
+
+        if (targetLeadId) {
+          // Check if another proposal for this lead is still accepted
+          const otherAcceptedProposal = await this.prisma.proposal.findFirst({
+            where: {
+              organizationId: user.organizationId,
+              leadId: targetLeadId,
+              id: { not: existing.id },
+              status: ProposalStatusEnum.ACCEPTED,
+              deletedAt: null,
+            },
+          });
+
+          if (!otherAcceptedProposal) {
+            // Find all active customers linked to this lead or deal
+            const linkedCustomers = await this.prisma.customer.findMany({
+              where: {
+                organizationId: user.organizationId,
+                deletedAt: null,
+                OR: [
+                  { leadId: targetLeadId },
+                  ...(existing.dealId ? [{ dealId: existing.dealId }] : []),
+                ],
+              },
+            });
+
+            for (const linkedCustomer of linkedCustomers) {
+              // Soft-delete the customer record
+              await this.prisma.customer.update({
+                where: { id: linkedCustomer.id },
+                data: { deletedAt: now, status: 'INACTIVE' },
+              });
+
+              await this.auditService.record({
+                organizationId: user.organizationId,
+                userId: user.userId,
+                action: 'CUSTOMER_REMOVED',
+                resource: 'customers',
+                resourceId: linkedCustomer.id,
+                details: {
+                  reason: `Proposal ${existing.proposalNumber} was declined`,
+                  proposalId: existing.id,
+                  leadId: targetLeadId,
+                },
+              });
+
+              this.logger.log(
+                `Customer ${linkedCustomer.id} soft-deleted after proposal ${existing.proposalNumber} was declined`,
+              );
+            }
+
+          // Revert lead status from CONVERTED back to PROPOSAL_SENT
+          const currentLead = await this.prisma.lead.findUnique({
+            where: { id: targetLeadId },
+            select: { status: true },
+          });
+          if (currentLead?.status === 'CONVERTED') {
+            await this.prisma.lead.update({
+              where: { id: targetLeadId },
+              data: { status: 'PROPOSAL_SENT', lastActivityAt: now },
+            });
+          }
+
+          // Revert deal status from WON back to OPEN
+          const wonDeal = await this.prisma.deal.findFirst({
+            where: {
+              organizationId: user.organizationId,
+              leadId: targetLeadId,
+              status: 'WON',
+              deletedAt: null,
+            },
+            include: { stage: true },
+          });
+
+          if (wonDeal) {
+            const negotiationStage = await this.prisma.pipelineStage.findFirst({
+              where: { order: 5 }, // Negotiation stage
+            });
+            await this.prisma.deal.update({
+              where: { id: wonDeal.id },
+              data: {
+                status: 'OPEN',
+                closedAt: null,
+                wonNotes: null,
+                ...(negotiationStage ? { stageId: negotiationStage.id } : {}),
+              },
+            });
+          }
+        }
+      }
+    } catch (e: any) {
+        this.logger.warn(`Failed to handle customer removal on proposal DECLINED: ${e.message}`);
+      }
+
+      await this.auditService.record({
+        organizationId: user.organizationId,
+        userId: user.userId,
+        action: 'PROPOSAL_STATUS_REJECTED',
+        resource: 'proposals',
+        resourceId: updated.id,
+        details: {
+          previousStatus: existing.status,
+          newStatus: dto.status,
+          rejectionReason: dto.rejectionReason,
+        },
+      });
+
+      const rejectedDto = this.mapToResponseDto(updated);
+      rejectedDto.message = 'Proposal declined. Customer account has been removed.';
+      return rejectedDto;
+    }
+
     await this.auditService.record({
       organizationId: user.organizationId,
       userId: user.userId,
@@ -567,6 +917,36 @@ export class ProposalsService {
       where: { id },
       data: { deletedAt: new Date() },
     });
+
+    // If deleted proposal was ACCEPTED, check if linked customer should be removed
+    if (existing.status === ProposalStatusEnum.ACCEPTED && existing.leadId) {
+      try {
+        const otherAccepted = await this.prisma.proposal.findFirst({
+          where: {
+            organizationId: user.organizationId,
+            leadId: existing.leadId,
+            id: { not: existing.id },
+            status: ProposalStatusEnum.ACCEPTED,
+            deletedAt: null,
+          },
+        });
+        if (!otherAccepted) {
+          await this.prisma.customer.updateMany({
+            where: {
+              organizationId: user.organizationId,
+              deletedAt: null,
+              OR: [
+                { leadId: existing.leadId },
+                ...(existing.dealId ? [{ dealId: existing.dealId }] : []),
+              ],
+            },
+            data: { deletedAt: new Date(), status: 'INACTIVE' },
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`Failed to clean up customer on proposal deletion: ${e.message}`);
+      }
+    }
 
     await this.auditService.record({
       organizationId: user.organizationId,

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import { useSidebarTheme, isColorDark } from '@/context/SidebarThemeContext';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -55,6 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
 }) => {
   const { user } = useAuth();
+  const { appliedTheme, isAppliedBgDark } = useSidebarTheme();
+  const isAccentDark = isColorDark(appliedTheme.accentColor);
 
   return (
     <>
@@ -68,15 +71,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container: Locked to 100vh with no bottom white gaps */}
       <aside
+        style={{
+          backgroundColor: appliedTheme.bgColor,
+          color: appliedTheme.textColor,
+          borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.12)',
+        }}
         className={cn(
-          'h-screen flex flex-col bg-[#16181B] text-slate-200 transition-all duration-300 ease-in-out border-r border-[#2D3238] select-none z-50 shrink-0 sticky top-0',
+          'h-screen flex flex-col transition-all duration-300 ease-in-out border-r select-none z-50 shrink-0 sticky top-0',
           isCollapsed ? 'w-16' : 'w-64',
           isOpen ? 'translate-x-0 fixed left-0' : '-translate-x-full lg:translate-x-0 fixed lg:sticky'
         )}
       >
         {/* Brand Header: Generous breathing room, unclipped logo, clear branding */}
         {isCollapsed ? (
-          <div className="flex flex-col items-center justify-center h-24 py-2 gap-2 border-b border-[#2D3238] shrink-0">
+          <div
+            style={{ borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.12)' }}
+            className="flex flex-col items-center justify-center h-24 py-2 gap-2 border-b shrink-0"
+          >
             <div className="h-10 w-10 rounded-xl bg-white p-1.5 flex items-center justify-center shrink-0 shadow-md">
               <img
                 src="/assets/images/logo.png"
@@ -86,7 +97,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <button
               onClick={onToggleCollapse}
-              className="h-6 w-6 flex items-center justify-center rounded-md text-slate-400 hover:text-white hover:bg-[#202428] transition-colors cursor-pointer"
+              style={{ color: appliedTheme.textColor }}
+              className={cn(
+                'h-6 w-6 flex items-center justify-center rounded-md transition-colors cursor-pointer',
+                isAppliedBgDark ? 'hover:bg-white/10' : 'hover:bg-black/10'
+              )}
               title="Expand sidebar"
               aria-label="Expand sidebar"
             >
@@ -94,7 +109,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         ) : (
-          <div className="flex h-20 items-center justify-between px-4 border-b border-[#2D3238] shrink-0">
+          <div
+            style={{ borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.12)' }}
+            className="flex h-20 items-center justify-between px-4 border-b shrink-0"
+          >
             <div className="flex items-center gap-3.5 overflow-hidden">
               <div className="h-11 w-11 rounded-xl bg-white p-1.5 flex items-center justify-center shrink-0 shadow-md">
                 <img
@@ -104,10 +122,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
               </div>
               <div className="min-w-0">
-                <span className="font-extrabold text-[15px] tracking-tight text-white block leading-tight">
+                <span
+                  style={{ color: appliedTheme.textColor }}
+                  className="font-extrabold text-[15px] tracking-tight block leading-tight truncate"
+                >
                   DigiTechzo
                 </span>
-                <span className="text-[11px] font-bold text-[#57B71B] tracking-wider block uppercase mt-0.5">
+                <span
+                  style={{ color: appliedTheme.accentColor }}
+                  className="text-[11px] font-bold tracking-wider block uppercase mt-0.5"
+                >
                   CRM Platform
                 </span>
               </div>
@@ -116,7 +140,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Desktop Collapse Toggle */}
             <button
               onClick={onToggleCollapse}
-              className="hidden lg:flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-[#202428] transition-colors cursor-pointer"
+              style={{ color: appliedTheme.textColor }}
+              className={cn(
+                'hidden lg:flex h-7 w-7 items-center justify-center rounded-lg transition-colors cursor-pointer',
+                isAppliedBgDark ? 'hover:bg-white/10' : 'hover:bg-black/10'
+              )}
               title="Collapse sidebar"
               aria-label="Collapse sidebar"
             >
@@ -136,6 +164,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 to={item.href}
                 onClick={onClose}
                 title={isCollapsed ? item.title : undefined}
+                style={({ isActive }) =>
+                  isActive
+                    ? {
+                        backgroundColor: appliedTheme.accentColor,
+                        color: isAccentDark ? '#FFFFFF' : '#1E242B',
+                      }
+                    : { color: appliedTheme.textColor }
+                }
                 className={({ isActive }) =>
                   cn(
                     'flex items-center rounded-lg font-medium transition-colors',
@@ -143,18 +179,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       ? 'justify-center h-10 w-10 mx-auto'
                       : 'justify-between px-3 py-2 text-sm',
                     isActive
-                      ? 'bg-[#57B71B] text-white font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-[#202428] hover:text-white'
+                      ? 'font-semibold shadow-sm'
+                      : isAppliedBgDark
+                        ? 'hover:bg-white/10'
+                        : 'hover:bg-black/5'
                   )
                 }
               >
                 {({ isActive }) => (
                   <div className={cn('flex items-center gap-3 min-w-0', isCollapsed && 'justify-center')}>
                     <Icon
-                      className={cn(
-                        'h-5 w-5 shrink-0',
-                        isActive ? 'text-white' : 'text-slate-400'
-                      )}
+                      className="h-5 w-5 shrink-0"
+                      style={{
+                        color: isActive
+                          ? isAccentDark
+                            ? '#FFFFFF'
+                            : '#1E242B'
+                          : appliedTheme.textColor,
+                      }}
                     />
                     {!isCollapsed && <span className="truncate">{item.title}</span>}
                   </div>
@@ -164,7 +206,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
 
           <div className="pt-2 pb-1 px-2">
-            <div className="h-px bg-[#2D3238]" />
+            <div
+              className="h-px"
+              style={{
+                backgroundColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.1)',
+              }}
+            />
           </div>
 
           {secondaryNavItems.map((item) => {
@@ -176,6 +223,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 to={item.href}
                 onClick={onClose}
                 title={isCollapsed ? item.title : undefined}
+                style={({ isActive }) =>
+                  isActive
+                    ? {
+                        backgroundColor: appliedTheme.accentColor,
+                        color: isAccentDark ? '#FFFFFF' : '#1E242B',
+                      }
+                    : { color: appliedTheme.textColor }
+                }
                 className={({ isActive }) =>
                   cn(
                     'flex items-center rounded-lg font-medium transition-colors',
@@ -183,18 +238,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       ? 'justify-center h-10 w-10 mx-auto'
                       : 'justify-between px-3 py-2 text-sm',
                     isActive
-                      ? 'bg-[#57B71B] text-white font-semibold shadow-sm'
-                      : 'text-slate-300 hover:bg-[#202428] hover:text-white'
+                      ? 'font-semibold shadow-sm'
+                      : isAppliedBgDark
+                        ? 'hover:bg-white/10'
+                        : 'hover:bg-black/5'
                   )
                 }
               >
                 {({ isActive }) => (
                   <div className={cn('flex items-center gap-3 min-w-0', isCollapsed && 'justify-center')}>
                     <Icon
-                      className={cn(
-                        'h-5 w-5 shrink-0',
-                        isActive ? 'text-white' : 'text-slate-400'
-                      )}
+                      className="h-5 w-5 shrink-0"
+                      style={{
+                        color: isActive
+                          ? isAccentDark
+                            ? '#FFFFFF'
+                            : '#1E242B'
+                          : appliedTheme.textColor,
+                      }}
                     />
                     {!isCollapsed && <span className="truncate">{item.title}</span>}
                   </div>
@@ -205,30 +266,64 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Authenticated User Status Footer */}
-        <div className="p-3 border-t border-[#2D3238] bg-[#121416] shrink-0">
+        <div
+          className="p-3 border-t shrink-0"
+          style={{
+            backgroundColor: isAppliedBgDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.03)',
+            borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.12)',
+          }}
+        >
           {isCollapsed ? (
             <div
-              className="flex h-10 w-10 mx-auto items-center justify-center rounded-lg bg-[#202428] text-white font-bold text-xs border border-[#2D3238] cursor-default"
-              title={user ? `${user.firstName} ${user.lastName} (${user.role})` : 'User'}
+              className="flex h-10 w-10 mx-auto items-center justify-center rounded-lg font-bold text-xs border cursor-default"
+              style={{
+                backgroundColor: isAppliedBgDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                color: appliedTheme.textColor,
+                borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.1)',
+              }}
+              title={user ? `${user.firstName} ${user.lastName}` : 'User'}
             >
               {user?.firstName?.[0] || 'U'}
             </div>
           ) : (
-            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[#181B1F] border border-[#2D3238]/60">
+            <div
+              className="flex items-center justify-between px-3 py-2 rounded-lg border"
+              style={{
+                backgroundColor: isAppliedBgDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.7)',
+                borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.1)',
+              }}
+            >
               <div className="flex items-center gap-2.5 min-w-0">
-                <div className="h-8 w-8 rounded-lg bg-[#24292E] text-white font-bold text-xs flex items-center justify-center shrink-0 border border-[#2D3238]">
+                <div
+                  className="h-8 w-8 rounded-lg font-bold text-xs flex items-center justify-center shrink-0 border"
+                  style={{
+                    backgroundColor: isAppliedBgDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+                    color: appliedTheme.textColor,
+                    borderColor: isAppliedBgDark ? '#2D3238' : 'rgba(0,0,0,0.1)',
+                  }}
+                >
                   {user?.firstName?.[0] || 'U'}
                 </div>
                 <div className="min-w-0">
-                  <span className="font-semibold text-xs text-slate-200 block truncate leading-tight">
+                  <span
+                    className="font-semibold text-xs block truncate leading-tight"
+                    style={{ color: appliedTheme.textColor }}
+                  >
                     {user ? `${user.firstName} ${user.lastName}` : 'Administrator'}
                   </span>
-                  <span className="text-[10px] text-slate-400 block truncate mt-0.5">
+                  <span
+                    className="text-[10px] block truncate mt-0.5 opacity-75"
+                    style={{ color: appliedTheme.textColor }}
+                  >
                     {user?.role || 'ADMIN'} &bull; {user?.organization?.name || 'DigiTechzo'}
                   </span>
                 </div>
               </div>
-              <span className="h-2 w-2 rounded-full bg-[#57B71B] ml-2 shrink-0" title="Online" />
+              <span
+                className="h-2 w-2 rounded-full ml-2 shrink-0"
+                style={{ backgroundColor: appliedTheme.accentColor }}
+                title="Online"
+              />
             </div>
           )}
         </div>

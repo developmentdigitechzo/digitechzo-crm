@@ -111,6 +111,18 @@ export class ProposalResponseDto {
 
   @ApiPropertyOptional({ type: ProposalDealSummaryDto })
   deal?: ProposalDealSummaryDto;
+
+  @ApiPropertyOptional()
+  customerCreated?: boolean;
+
+  @ApiPropertyOptional()
+  customerExisted?: boolean;
+
+  @ApiPropertyOptional()
+  customerId?: string;
+
+  @ApiPropertyOptional()
+  message?: string;
 }
 
 export class PaginatedProposalsResponseDto {

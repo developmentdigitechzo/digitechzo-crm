@@ -23,10 +23,13 @@ import {
   Loader2,
   AlertCircle,
   ShieldCheck,
+  Palette,
 } from 'lucide-react';
+import { NavbarColorSettings } from '@/components/settings/NavbarColorSettings';
 
 const SETTINGS_TABS: FilterOption[] = [
   { id: 'general', label: 'General' },
+  { id: 'appearance', label: 'Navbar & Appearance' },
   { id: 'pipeline', label: 'Pipeline' },
   { id: 'taxonomies', label: 'Taxonomies' },
   { id: 'adapters', label: 'Adapters' },
@@ -239,7 +242,47 @@ export const SettingsPage: React.FC = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Quick link card on General tab */}
+          <Card className="border-border shadow-card bg-white md:col-span-2">
+            <CardHeader className="py-3 px-4 border-b border-border flex flex-row items-center justify-between">
+              <CardTitle className="text-xs font-bold text-txt-primary flex items-center gap-2">
+                <Palette className="h-4 w-4 text-[#57B71B]" />
+                Sidebar & Navbar Color Customization
+              </CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setActiveTab('appearance')}
+                className="h-7 px-2.5 text-xs font-semibold cursor-pointer"
+              >
+                Customize Theme &rarr;
+              </Button>
+            </CardHeader>
+            <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+              <div>
+                <p className="text-txt-primary font-medium">
+                  Personalize the left navigation sidebar background and menu item text/icon colors to match your brand.
+                </p>
+                <p className="text-txt-muted text-[11px] mt-0.5">
+                  Includes live preview, color pickers, HEX inputs, WCAG contrast verification, and localStorage persistence.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => setActiveTab('appearance')}
+                className="h-8 px-3.5 text-xs font-semibold bg-[#57B71B] hover:bg-[#469815] text-white shrink-0 cursor-pointer"
+              >
+                Open Navbar Settings
+              </Button>
+            </CardContent>
+          </Card>
         </div>
+      )}
+
+      {/* Tab: Appearance & Navbar Customization */}
+      {activeTab === 'appearance' && (
+        <NavbarColorSettings />
       )}
 
       {/* Tab 2: Pipeline Stages */}

@@ -7,6 +7,7 @@ import { SearchInput } from '@/components/common/SearchInput';
 import { EmptyState } from '@/components/common/EmptyState';
 import { MetricCard } from '@/components/common/MetricCard';
 import { ActionMenu } from '@/components/common/ActionMenu';
+import { AlertBanner } from '@/components/common/AlertBanner';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +50,10 @@ export const ProposalsPage: React.FC = () => {
   const [selectedProposal, setSelectedProposal] = useState<ProposalItem | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionBanner, setActionBanner] = useState<{
+    variant: 'success' | 'danger' | 'info';
+    message: string;
+  } | null>(null);
 
   // Form state
   const [newProposalForm, setNewProposalForm] = useState({
@@ -327,20 +332,50 @@ export const ProposalsPage: React.FC = () => {
       else if (nextStatus === 'SENT') backendStatus = 'SENT';
       else if (nextStatus === 'DRAFT') backendStatus = 'DRAFT';
 
-      await crmApi.updateProposalStatus(propId, {
+      const response = await crmApi.updateProposalStatus(propId, {
         status: backendStatus,
         rejectionReason,
       });
 
-      await queryClient.invalidateQueries({ queryKey: ['proposals'] });
-      await queryClient.invalidateQueries({ queryKey: ['leads'] });
-      await queryClient.invalidateQueries({ queryKey: ['deals'] });
-      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['proposals'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
+      ]);
+
       if (selectedProposal && selectedProposal.id === propId) {
         setSelectedProposal((prev) => (prev ? { ...prev, status: nextStatus } : null));
       }
+
+      if (nextStatus === 'ACCEPTED') {
+        const msg =
+          response?.message ||
+          (response?.customerExisted
+            ? 'Proposal accepted successfully. Linked to existing customer account.'
+            : 'Proposal accepted successfully. Customer account created.');
+        setActionBanner({
+          variant: 'success',
+          message: msg,
+        });
+      } else if (nextStatus === 'DECLINED') {
+        setActionBanner({
+          variant: 'info',
+          message: response?.message || 'Proposal declined. Customer account has been removed.',
+        });
+      } else {
+        setActionBanner({
+          variant: 'info',
+          message: `Proposal status updated to ${nextStatus}.`,
+        });
+      }
     } catch (err: any) {
       console.error('Failed to update status:', err);
+      setActionBanner({
+        variant: 'danger',
+        message: err.message || 'Failed to update proposal status.',
+      });
     }
   };
 
@@ -349,10 +384,19 @@ export const ProposalsPage: React.FC = () => {
     if (!window.confirm('Are you sure you want to delete this proposal?')) return;
     try {
       await crmApi.deleteProposal(propId);
-      await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['proposals'] }),
+        queryClient.invalidateQueries({ queryKey: ['customers'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+      ]);
       if (selectedProposal?.id === propId) {
         setSelectedProposal(null);
       }
+      setActionBanner({
+        variant: 'info',
+        message: 'Proposal deleted successfully.',
+      });
     } catch (err: any) {
       console.error('Failed to delete proposal:', err);
     }
@@ -380,6 +424,15 @@ export const ProposalsPage: React.FC = () => {
           </Button>
         }
       />
+
+      {/* Action Notification Banner */}
+      {actionBanner && (
+        <AlertBanner
+          variant={actionBanner.variant}
+          message={actionBanner.message}
+          onClose={() => setActionBanner(null)}
+        />
+      )}
 
       {/* 2. Compact Metric Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -957,6 +1010,18 @@ export const ProposalsPage: React.FC = () => {
                   >
                     <Check className="h-3 w-3 mr-1" />
                     Mark Accepted
+                  </Button>
+                )}
+
+                {selectedProposal.status !== 'DECLINED' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 cursor-pointer"
+                    onClick={() => handleUpdateStatus(selectedProposal.id, 'DECLINED')}
+                  >
+                    <XCircle className="h-3 w-3 mr-1" />
+                    Mark Declined
                   </Button>
                 )}
               </div>
