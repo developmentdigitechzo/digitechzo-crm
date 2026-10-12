@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
 import { SearchInput } from '@/components/common/SearchInput';
@@ -17,14 +18,19 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { MOCK_LEADS } from '@/mocks/mockData';
+import { crmApi } from '@/lib/api';
+import { useAuth } from '@/hooks/useAuth';
+import {
+  MeetingItem,
+  MeetingStatus,
+  MeetingType,
+  CreateMeetingPayload,
+} from '@/types/crm';
 import { formatDate, cn } from '@/lib/utils';
 import {
   PlusCircle,
   Video,
   Clock,
-  Building2,
-  User,
   CheckCircle2,
   RotateCcw,
   AlertCircle,
@@ -33,96 +39,14 @@ import {
   Table as TableIcon,
   LayoutGrid,
   FileText,
+  Loader2,
+  Trash2,
 } from 'lucide-react';
 
-export type MeetingStatus = 'SCHEDULED' | 'COMPLETED' | 'NO_SHOW' | 'RESCHEDULED' | 'CANCELLED';
-export type MeetingType = 'TECHNICAL_DEMO' | 'DISCOVERY' | 'PROPOSAL_REVIEW' | 'COMMERCIAL_NEGOTIATION';
-
-export interface MeetingItem {
-  id: string;
-  title: string;
-  leadId: string;
-  leadName: string;
-  companyName: string;
-  meetingType: MeetingType;
-  date: string;
-  time: string;
-  duration: string;
-  hostName: string;
-  meetingUrl?: string;
-  status: MeetingStatus;
-  outcomeSummary?: string;
-  nextStepNotes?: string;
-  notes?: string;
-}
-
-const INITIAL_MEETINGS: MeetingItem[] = [
-  {
-    id: 'meet-1',
-    title: 'B2B Wholesale Portal Architecture Demo',
-    leadId: 'lead-1',
-    leadName: 'Rohan Deshmukh',
-    companyName: 'Apex Logistics Ltd',
-    meetingType: 'TECHNICAL_DEMO',
-    date: '2026-10-06',
-    time: '11:30 AM',
-    duration: '60 min',
-    hostName: 'Arjun Verma',
-    meetingUrl: 'https://meet.google.com/abc-xyz-demo',
-    status: 'SCHEDULED',
-    notes: 'Technical discovery & demo with Lead Solutions Architect',
-  },
-  {
-    id: 'meet-2',
-    title: 'Performance Marketing Discovery Session',
-    leadId: 'lead-2',
-    leadName: 'Ananya Iyer',
-    companyName: 'Zenith EdTech',
-    meetingType: 'DISCOVERY',
-    date: '2026-10-07',
-    time: '02:00 PM',
-    duration: '45 min',
-    hostName: 'Arjun Verma',
-    meetingUrl: undefined,
-    status: 'SCHEDULED',
-    notes: 'Review campaign requirements and quarterly targets',
-  },
-  {
-    id: 'meet-3',
-    title: 'Omnichannel Retail App Scope Review',
-    leadId: 'lead-5',
-    leadName: 'Rajesh Jain',
-    companyName: 'Vanguard Retail Solutions',
-    meetingType: 'TECHNICAL_DEMO',
-    date: '2026-10-04',
-    time: '03:30 PM',
-    duration: '60 min',
-    hostName: 'Priya Sharma',
-    meetingUrl: undefined,
-    status: 'COMPLETED',
-    outcomeSummary: 'Client confirmed budget readiness for mobile app pilot. Requested formal commercial quotation.',
-    nextStepNotes: 'Prepare proposal draft and send for management review.',
-  },
-  {
-    id: 'meet-4',
-    title: 'Cloud Infrastructure Requirements Discovery',
-    leadId: 'lead-3',
-    leadName: 'Vikram Singhania',
-    companyName: 'CloudScale Technologies',
-    meetingType: 'DISCOVERY',
-    date: '2026-10-03',
-    time: '10:30 AM',
-    duration: '30 min',
-    hostName: 'Arjun Verma',
-    meetingUrl: undefined,
-    status: 'NO_SHOW',
-    outcomeSummary: 'Prospect did not attend. Sent follow-up communication to reschedule.',
-    nextStepNotes: 'Attempt phone contact next business day.',
-  },
-];
-
 export const MeetingsPage: React.FC = () => {
-  const [meetings, setMeetings] = useState<MeetingItem[]>(INITIAL_MEETINGS);
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
@@ -137,12 +61,11 @@ export const MeetingsPage: React.FC = () => {
   // Form states
   const [newMeetingForm, setNewMeetingForm] = useState({
     title: '',
-    leadId: MOCK_LEADS[0]?.id || 'lead-1',
-    meetingType: 'TECHNICAL_DEMO' as MeetingType,
+    leadId: '',
+    meetingType: 'DEMO' as MeetingType,
     date: new Date().toISOString().split('T')[0],
     time: '11:30 AM',
     duration: '45 min',
-    hostName: 'Arjun Verma',
     meetingUrl: '',
     notes: '',
   });
@@ -153,11 +76,116 @@ export const MeetingsPage: React.FC = () => {
     nextStepNotes: '',
   });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  // Real backend Queries
+  const {
+    data: meetingsResponse,
+    isLoading: isMeetingsLoading,
+    isError: isMeetingsError,
+    error: meetingsError,
+    refetch: refetchMeetings,
+  } = useQuery({
+    queryKey: ['meetings'],
+    queryFn: () => crmApi.getMeetings({ limit: 100 }),
+  });
+
+  const { data: leadsResponse } = useQuery({
+    queryKey: ['leads'],
+    queryFn: () => crmApi.getLeads({ limit: 100 }),
+  });
+
+  const leads = useMemo(() => {
+    return (
+      leadsResponse?.items ||
+      leadsResponse?.leads ||
+      (Array.isArray(leadsResponse?.data) ? leadsResponse?.data : leadsResponse?.data?.items) ||
+      []
+    );
+  }, [leadsResponse]);
+
+  // Map Backend Meetings to frontend MeetingItem models
+  const rawMeetings = useMemo(() => {
+    return (
+      meetingsResponse?.data ||
+      meetingsResponse?.items ||
+      (Array.isArray(meetingsResponse) ? meetingsResponse : [])
+    );
+  }, [meetingsResponse]);
+
+  const meetings: MeetingItem[] = useMemo(() => {
+    return rawMeetings.map((m: any) => {
+      let meetingType: MeetingType = 'MEETING';
+      if (['MEETING', 'DEMO', 'DISCOVERY', 'FOLLOW_UP'].includes(m.meetingType)) {
+        meetingType = m.meetingType as MeetingType;
+      }
+
+      let status: MeetingStatus = 'SCHEDULED';
+      if (['SCHEDULED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(m.status)) {
+        status = m.status as MeetingStatus;
+      }
+
+      const startTime = m.startTime;
+      const endTime = m.endTime;
+      const date = startTime ? formatDate(startTime) : '—';
+      const time = startTime
+        ? new Date(startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : '—';
+
+      let duration = '45 min';
+      if (startTime && endTime) {
+        const diffMins = Math.round(
+          (new Date(endTime).getTime() - new Date(startTime).getTime()) / 60000
+        );
+        if (diffMins > 0) duration = `${diffMins} min`;
+      }
+
+      const leadFullName = m.lead?.fullName;
+      const leadCompanyName = m.lead?.companyName;
+
+      return {
+        id: m.id,
+        title: m.title,
+        description: m.description || undefined,
+        leadId: m.leadId || undefined,
+        leadName: leadFullName || 'General Prospect',
+        companyName: leadCompanyName || 'Lead Company',
+        dealId: m.dealId || undefined,
+        dealTitle: m.deal?.title || undefined,
+        meetingType,
+        date,
+        time,
+        duration,
+        hostName: m.owner?.name || m.creator?.name || 'Administrator',
+        meetingUrl: m.location || undefined,
+        status,
+        outcomeSummary: m.outcome || undefined,
+        nextStepNotes: m.notes || undefined,
+        notes: m.notes || undefined,
+        startTime,
+        endTime,
+      };
+    });
+  }, [rawMeetings]);
+
   // Derived counts
-  const upcomingCount = useMemo(() => meetings.filter((m) => m.status === 'SCHEDULED').length, [meetings]);
-  const completedCount = useMemo(() => meetings.filter((m) => m.status === 'COMPLETED').length, [meetings]);
-  const noShowCount = useMemo(() => meetings.filter((m) => m.status === 'NO_SHOW').length, [meetings]);
-  const rescheduledCount = useMemo(() => meetings.filter((m) => m.status === 'RESCHEDULED').length, [meetings]);
+  const upcomingCount = useMemo(
+    () => meetings.filter((m) => m.status === 'SCHEDULED').length,
+    [meetings]
+  );
+  const completedCount = useMemo(
+    () => meetings.filter((m) => m.status === 'COMPLETED').length,
+    [meetings]
+  );
+  const noShowCount = useMemo(
+    () => meetings.filter((m) => m.status === 'NO_SHOW').length,
+    [meetings]
+  );
+  const cancelledCount = useMemo(
+    () => meetings.filter((m) => m.status === 'CANCELLED').length,
+    [meetings]
+  );
 
   // Filter options
   const filterOptions: FilterOption[] = useMemo(() => {
@@ -166,13 +194,13 @@ export const MeetingsPage: React.FC = () => {
       { id: 'SCHEDULED', label: 'Upcoming', count: upcomingCount, countVariant: 'info' },
       { id: 'COMPLETED', label: 'Completed', count: completedCount },
       { id: 'NO_SHOW', label: 'No-Show', count: noShowCount, countVariant: 'danger' },
-      { id: 'RESCHEDULED', label: 'Rescheduled', count: rescheduledCount, countVariant: 'warning' },
+      { id: 'CANCELLED', label: 'Cancelled', count: cancelledCount, countVariant: 'warning' },
     ];
-  }, [meetings.length, upcomingCount, completedCount, noShowCount, rescheduledCount]);
+  }, [meetings.length, upcomingCount, completedCount, noShowCount, cancelledCount]);
 
   // Unique hosts
   const uniqueHosts = useMemo(() => {
-    return Array.from(new Set(meetings.map((m) => m.hostName)));
+    return Array.from(new Set(meetings.map((m) => m.hostName).filter(Boolean)));
   }, [meetings]);
 
   // Filtered meetings
@@ -204,7 +232,11 @@ export const MeetingsPage: React.FC = () => {
     setSearchQuery('');
   };
 
-  const isFiltered = statusFilter !== 'ALL' || typeFilter !== 'ALL' || hostFilter !== 'ALL' || searchQuery.trim() !== '';
+  const isFiltered =
+    statusFilter !== 'ALL' ||
+    typeFilter !== 'ALL' ||
+    hostFilter !== 'ALL' ||
+    searchQuery.trim() !== '';
 
   const getStatusBadge = (status: MeetingStatus) => {
     switch (status) {
@@ -214,8 +246,6 @@ export const MeetingsPage: React.FC = () => {
         return <Badge variant="success">Completed</Badge>;
       case 'NO_SHOW':
         return <Badge variant="danger">No-Show</Badge>;
-      case 'RESCHEDULED':
-        return <Badge variant="warning">Rescheduled</Badge>;
       case 'CANCELLED':
         return <Badge variant="neutral">Cancelled</Badge>;
       default:
@@ -225,85 +255,204 @@ export const MeetingsPage: React.FC = () => {
 
   const getTypeBadge = (type: MeetingType) => {
     switch (type) {
-      case 'TECHNICAL_DEMO':
+      case 'DEMO':
         return <Badge variant="tech">Technical Demo</Badge>;
       case 'DISCOVERY':
-        return <Badge variant="info">Discovery</Badge>;
-      case 'PROPOSAL_REVIEW':
-        return <Badge variant="warning">Proposal Review</Badge>;
-      case 'COMMERCIAL_NEGOTIATION':
-        return <Badge variant="warning">Negotiation</Badge>;
+        return <Badge variant="info">Discovery Session</Badge>;
+      case 'MEETING':
+        return <Badge variant="warning">Commercial Negotiation</Badge>;
+      case 'FOLLOW_UP':
+        return <Badge variant="neutral">Proposal Review</Badge>;
       default:
         return <Badge variant="neutral">{type}</Badge>;
     }
   };
 
-  const handleCreateMeeting = (e: React.FormEvent) => {
+  const parseDateTimeAndDuration = (
+    dateStr: string,
+    timeStr: string,
+    durationStr: string
+  ): { startTime: string; endTime: string } => {
+    let startDate = new Date(`${dateStr}T10:00:00.000Z`);
+    const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+    if (match) {
+      let hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const ampm = match[3]?.toUpperCase();
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      const d = new Date(dateStr);
+      d.setHours(hours, minutes, 0, 0);
+      if (!isNaN(d.getTime())) {
+        startDate = d;
+      }
+    }
+
+    let durationMinutes = 45;
+    const durMatch = durationStr.match(/(\d+)/);
+    if (durMatch) {
+      durationMinutes = parseInt(durMatch[1], 10);
+    }
+
+    const endDate = new Date(startDate.getTime() + durationMinutes * 60000);
+    return {
+      startTime: startDate.toISOString(),
+      endTime: endDate.toISOString(),
+    };
+  };
+
+  const handleCreateMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMeetingForm.title.trim()) return;
 
-    const selectedLead = MOCK_LEADS.find((l) => l.id === newMeetingForm.leadId);
+    setIsSubmitting(true);
+    setFormError(null);
 
-    const newMeeting: MeetingItem = {
-      id: `meet-${Date.now()}`,
-      title: newMeetingForm.title.trim(),
-      leadId: newMeetingForm.leadId,
-      leadName: selectedLead?.fullName || 'Prospect',
-      companyName: selectedLead?.companyName || 'Lead Company',
-      meetingType: newMeetingForm.meetingType,
-      date: newMeetingForm.date,
-      time: newMeetingForm.time,
-      duration: newMeetingForm.duration,
-      hostName: newMeetingForm.hostName,
-      meetingUrl: newMeetingForm.meetingUrl.trim() || undefined,
-      status: 'SCHEDULED',
-      notes: newMeetingForm.notes.trim() || undefined,
-    };
+    try {
+      const { startTime, endTime } = parseDateTimeAndDuration(
+        newMeetingForm.date,
+        newMeetingForm.time,
+        newMeetingForm.duration
+      );
 
-    setMeetings([newMeeting, ...meetings]);
-    setIsScheduleModalOpen(false);
-    setNewMeetingForm({
-      title: '',
-      leadId: MOCK_LEADS[0]?.id || 'lead-1',
-      meetingType: 'TECHNICAL_DEMO',
-      date: new Date().toISOString().split('T')[0],
-      time: '11:30 AM',
-      duration: '45 min',
-      hostName: 'Arjun Verma',
-      meetingUrl: '',
-      notes: '',
-    });
+      const payload: CreateMeetingPayload = {
+        title: newMeetingForm.title.trim(),
+        description: newMeetingForm.notes.trim() || undefined,
+        meetingType: newMeetingForm.meetingType,
+        startTime,
+        endTime,
+        location: newMeetingForm.meetingUrl.trim() || undefined,
+        leadId: newMeetingForm.leadId || undefined,
+      };
+
+      await crmApi.createMeeting(payload);
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['meetings'] }),
+        queryClient.invalidateQueries({ queryKey: ['activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
+      ]);
+
+      setIsScheduleModalOpen(false);
+      setNewMeetingForm({
+        title: '',
+        leadId: '',
+        meetingType: 'DEMO',
+        date: new Date().toISOString().split('T')[0],
+        time: '11:30 AM',
+        duration: '45 min',
+        meetingUrl: '',
+        notes: '',
+      });
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to schedule demo. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSaveOutcome = (e: React.FormEvent) => {
+  const handleSaveOutcome = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!outcomeModalMeeting) return;
 
-    setMeetings((prev) =>
-      prev.map((m) => {
-        if (m.id === outcomeModalMeeting.id) {
-          return {
-            ...m,
-            status: outcomeForm.status,
-            outcomeSummary: outcomeForm.outcomeSummary.trim() || undefined,
-            nextStepNotes: outcomeForm.nextStepNotes.trim() || undefined,
-          };
-        }
-        return m;
-      })
-    );
+    setIsSubmitting(true);
+    setFormError(null);
 
-    setOutcomeModalMeeting(null);
+    try {
+      if (outcomeForm.status === 'COMPLETED') {
+        await crmApi.completeMeeting(outcomeModalMeeting.id, {
+          outcome: outcomeForm.outcomeSummary.trim() || undefined,
+          notes: outcomeForm.nextStepNotes.trim() || undefined,
+          createActivity: true,
+        });
+      } else if (outcomeForm.status === 'CANCELLED') {
+        await crmApi.cancelMeeting(outcomeModalMeeting.id, {
+          cancelReason: outcomeForm.outcomeSummary.trim() || 'Cancelled by client or host',
+          notes: outcomeForm.nextStepNotes.trim() || undefined,
+        });
+      } else if (outcomeForm.status === 'NO_SHOW') {
+        await crmApi.markMeetingNoShow(outcomeModalMeeting.id);
+      } else {
+        // Fallback or update
+        await crmApi.updateMeeting(outcomeModalMeeting.id, {
+          status: outcomeForm.status,
+          outcome: outcomeForm.outcomeSummary.trim() || undefined,
+          notes: outcomeForm.nextStepNotes.trim() || undefined,
+        });
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['meetings'] }),
+        queryClient.invalidateQueries({ queryKey: ['activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard-activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+        queryClient.invalidateQueries({ queryKey: ['deals'] }),
+        queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
+      ]);
+
+      setOutcomeModalMeeting(null);
+    } catch (err: any) {
+      setFormError(err?.message || 'Failed to save meeting outcome.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteMeeting = async (meetingId: string) => {
+    if (!window.confirm('Are you sure you want to delete this meeting?')) return;
+    try {
+      await crmApi.deleteMeeting(meetingId);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['meetings'] }),
+        queryClient.invalidateQueries({ queryKey: ['activities'] }),
+        queryClient.invalidateQueries({ queryKey: ['leads'] }),
+      ]);
+      if (selectedMeeting?.id === meetingId) {
+        setSelectedMeeting(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete meeting:', err);
+    }
   };
 
   const openOutcomeModal = (meeting: MeetingItem) => {
     setOutcomeModalMeeting(meeting);
+    setFormError(null);
     setOutcomeForm({
       status: meeting.status === 'SCHEDULED' ? 'COMPLETED' : meeting.status,
       outcomeSummary: meeting.outcomeSummary || '',
       nextStepNotes: meeting.nextStepNotes || '',
     });
   };
+
+  if (isMeetingsLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3">
+        <Loader2 className="h-8 w-8 animate-spin text-[#57B71B]" />
+        <p className="text-sm text-txt-muted">Loading meetings and demonstrations...</p>
+      </div>
+    );
+  }
+
+  if (isMeetingsError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 p-6 text-center">
+        <AlertCircle className="h-10 w-10 text-red-500" />
+        <h3 className="text-base font-semibold text-txt-primary">Failed to load meetings</h3>
+        <p className="text-xs text-txt-muted max-w-sm">
+          {meetingsError instanceof Error
+            ? meetingsError.message
+            : 'Network error loading meetings from PostgreSQL backend.'}
+        </p>
+        <Button size="sm" onClick={() => refetchMeetings()}>
+          Try Again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 select-none max-w-full">
@@ -321,8 +470,10 @@ export const MeetingsPage: React.FC = () => {
                 type="button"
                 onClick={() => setViewMode('table')}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-btn transition-colors cursor-pointer",
-                  viewMode === 'table' ? "bg-[#16181B] text-white" : "text-txt-secondary hover:text-txt-primary"
+                  'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-btn transition-colors cursor-pointer',
+                  viewMode === 'table'
+                    ? 'bg-[#16181B] text-white'
+                    : 'text-txt-secondary hover:text-txt-primary'
                 )}
                 title="Spreadsheet Table View"
               >
@@ -333,8 +484,10 @@ export const MeetingsPage: React.FC = () => {
                 type="button"
                 onClick={() => setViewMode('grid')}
                 className={cn(
-                  "flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-btn transition-colors cursor-pointer",
-                  viewMode === 'grid' ? "bg-[#16181B] text-white" : "text-txt-secondary hover:text-txt-primary"
+                  'flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-btn transition-colors cursor-pointer',
+                  viewMode === 'grid'
+                    ? 'bg-[#16181B] text-white'
+                    : 'text-txt-secondary hover:text-txt-primary'
                 )}
                 title="Cards Grid View"
               >
@@ -346,7 +499,10 @@ export const MeetingsPage: React.FC = () => {
             <Button
               size="sm"
               className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer shrink-0"
-              onClick={() => setIsScheduleModalOpen(true)}
+              onClick={() => {
+                setFormError(null);
+                setIsScheduleModalOpen(true);
+              }}
             >
               <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
               Schedule Demo
@@ -355,48 +511,55 @@ export const MeetingsPage: React.FC = () => {
         }
       />
 
-      {/* 2. Compact Metric Summary Cards */}
+      {/* 2. Metric Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MetricCard
-          label="Upcoming Demos"
-          value={upcomingCount}
-          subtext="Sessions scheduled"
-          icon={Video}
-          iconVariant="tech"
-          onClick={() => setStatusFilter('SCHEDULED')}
-          className={statusFilter === 'SCHEDULED' ? 'border-[#7C3AED] ring-1 ring-[#7C3AED]/30' : ''}
+          label="Total Sessions"
+          value={meetings.length}
+          subtext="Lifetime scheduled"
+          icon={Calendar}
+          iconVariant="neutral"
+          onClick={() => setStatusFilter('ALL')}
+          className={
+            statusFilter === 'ALL' && !isFiltered ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''
+          }
         />
         <MetricCard
-          label="Completed"
+          label="Upcoming / Demos"
+          value={upcomingCount}
+          subtext="Requires demo prep"
+          icon={Clock}
+          iconVariant="info"
+          onClick={() => setStatusFilter('SCHEDULED')}
+          className={
+            statusFilter === 'SCHEDULED' ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''
+          }
+        />
+        <MetricCard
+          label="Completed Sessions"
           value={completedCount}
-          subtext="Outcomes evaluated"
+          subtext="Outcomes logged"
           icon={CheckCircle2}
           iconVariant="success"
           onClick={() => setStatusFilter('COMPLETED')}
-          className={statusFilter === 'COMPLETED' ? 'border-[#16A34A] ring-1 ring-[#16A34A]/30' : ''}
+          className={
+            statusFilter === 'COMPLETED' ? 'border-[#16A34A] ring-1 ring-[#16A34A]/30' : ''
+          }
         />
         <MetricCard
-          label="No-Show"
-          value={noShowCount}
-          subtext="Follow-up needed"
-          subtextVariant="danger"
+          label="No-Show Rate"
+          value={
+            meetings.length > 0 ? `${Math.round((noShowCount / meetings.length) * 100)}%` : '0%'
+          }
+          subtext={`${noShowCount} missed attendance`}
           icon={AlertCircle}
           iconVariant="danger"
           onClick={() => setStatusFilter('NO_SHOW')}
           className={statusFilter === 'NO_SHOW' ? 'border-[#DC2626] ring-1 ring-[#DC2626]/30' : ''}
         />
-        <MetricCard
-          label="Rescheduled"
-          value={rescheduledCount}
-          subtext="Updated timelines"
-          icon={RotateCcw}
-          iconVariant="warning"
-          onClick={() => setStatusFilter('RESCHEDULED')}
-          className={statusFilter === 'RESCHEDULED' ? 'border-[#D97706] ring-1 ring-[#D97706]/30' : ''}
-        />
       </div>
 
-      {/* 3. Compact Toolbar & Filters */}
+      {/* 3. Compact Toolbar & Filter Pills */}
       <div className="flex flex-col gap-2.5 sm:gap-3 p-3 rounded-card border border-border bg-white shadow-none">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
           <SearchInput
@@ -407,19 +570,6 @@ export const MeetingsPage: React.FC = () => {
           />
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Meeting Type Filter */}
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-secondary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer shadow-subtle"
-            >
-              <option value="ALL">All Meeting Types</option>
-              <option value="TECHNICAL_DEMO">Technical Demo</option>
-              <option value="DISCOVERY">Discovery</option>
-              <option value="PROPOSAL_REVIEW">Proposal Review</option>
-              <option value="COMMERCIAL_NEGOTIATION">Negotiation</option>
-            </select>
-
             {/* Host Filter */}
             <select
               value={hostFilter}
@@ -427,11 +577,24 @@ export const MeetingsPage: React.FC = () => {
               className="h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-secondary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer shadow-subtle"
             >
               <option value="ALL">All Hosts</option>
-              {uniqueHosts.map((host) => (
-                <option key={host} value={host}>
-                  {host}
+              {uniqueHosts.map((h) => (
+                <option key={h} value={h}>
+                  {h}
                 </option>
               ))}
+            </select>
+
+            {/* Type Filter */}
+            <select
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-secondary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary cursor-pointer shadow-subtle"
+            >
+              <option value="ALL">All Types</option>
+              <option value="DEMO">Technical Demo</option>
+              <option value="DISCOVERY">Discovery Session</option>
+              <option value="MEETING">Commercial Meeting</option>
+              <option value="FOLLOW_UP">Proposal Review</option>
             </select>
 
             {isFiltered && (
@@ -448,80 +611,95 @@ export const MeetingsPage: React.FC = () => {
           </div>
         </div>
 
-        <FilterPills
-          options={filterOptions}
-          activeId={statusFilter}
-          onChange={setStatusFilter}
-        />
+        {/* Filter Pills */}
+        <FilterPills options={filterOptions} activeId={statusFilter} onChange={setStatusFilter} />
       </div>
 
-      {/* 4. Main Meeting Content: Primary Table or Grid */}
+      {/* 4. Main Meeting List Representation */}
       {filteredMeetings.length === 0 ? (
         <div className="p-8 bg-white rounded-card border border-border">
           <EmptyState
             icon={Calendar}
             title="No meeting records found"
-            description="No demonstration sessions match the current filter selection. Try resetting filters or schedule a demo."
-            actionLabel={isFiltered ? "Reset filters" : "Schedule Demo"}
+            description="No scheduled demos match your active criteria. Try clearing filters or schedule a demo."
+            actionLabel={isFiltered ? 'Reset filters' : 'Schedule Demo'}
             onAction={isFiltered ? resetAllFilters : () => setIsScheduleModalOpen(true)}
           />
         </div>
       ) : viewMode === 'table' ? (
-        /* Primary Table View with Mobile Card Transformation */
-        <div className="space-y-3">
-          {/* Desktop & Tablet Table */}
+        <div className="space-y-4">
           <div className="hidden sm:block rounded-card border border-border bg-white overflow-hidden shadow-none">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader className="bg-slate-50/60">
                   <TableRow>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Status</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Meeting / Demo</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Prospect</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Date / Time</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Type</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Host</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Meeting Link</TableHead>
-                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase text-right">Action</TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Status
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Meeting / Demo Title
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Prospect & Company
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Date & Time
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Type
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Host
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">
+                      Link / Location
+                    </TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase text-right">
+                      Actions
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredMeetings.map((m) => (
                     <TableRow key={m.id} className="hover:bg-slate-50/80 transition-colors">
-                      <TableCell className="py-2.5">
-                        {getStatusBadge(m.status)}
-                      </TableCell>
+                      <TableCell className="py-2.5">{getStatusBadge(m.status)}</TableCell>
                       <TableCell className="py-2.5">
                         <button
                           type="button"
                           onClick={() => setSelectedMeeting(m)}
-                          className="font-semibold text-xs text-txt-primary hover:text-[#57B71B] transition-colors text-left cursor-pointer truncate max-w-xs block"
+                          className="font-bold text-xs text-txt-primary hover:text-[#57B71B] transition-colors truncate max-w-[220px] text-left block cursor-pointer"
                         >
                           {m.title}
                         </button>
                       </TableCell>
                       <TableCell className="py-2.5">
                         <div className="text-xs">
-                          <Link
-                            to="/leads"
-                            className="font-medium text-txt-primary hover:text-[#57B71B] transition-colors truncate block"
-                          >
-                            {m.leadName}
-                          </Link>
-                          <span className="text-[11px] text-txt-muted truncate block">{m.companyName}</span>
+                          {m.leadId ? (
+                            <Link
+                              to="/leads"
+                              className="font-medium text-txt-primary hover:text-[#57B71B] transition-colors truncate block"
+                            >
+                              {m.leadName}
+                            </Link>
+                          ) : (
+                            <span className="font-medium text-txt-primary truncate block">
+                              {m.leadName}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-txt-muted truncate block">
+                            {m.companyName}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell className="py-2.5">
                         <div className="text-xs font-semibold tabular-nums text-txt-primary">
                           <span>{m.time}</span>
                           <span className="text-[10px] text-txt-muted block font-normal">
-                            {formatDate(m.date)} ({m.duration})
+                            {m.date} ({m.duration})
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="py-2.5">
-                        {getTypeBadge(m.meetingType)}
-                      </TableCell>
+                      <TableCell className="py-2.5">{getTypeBadge(m.meetingType)}</TableCell>
                       <TableCell className="py-2.5 text-xs text-txt-secondary font-medium">
                         {m.hostName}
                       </TableCell>
@@ -534,7 +712,9 @@ export const MeetingsPage: React.FC = () => {
                             className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-btn bg-slate-50 border border-border text-[11px] font-mono text-txt-secondary hover:text-[#57B71B] hover:border-[#57B71B] transition-colors"
                           >
                             <Video className="h-3 w-3 text-primary shrink-0" />
-                            <span className="truncate max-w-[120px]">meet.google.com</span>
+                            <span className="truncate max-w-[120px]">
+                              {m.meetingUrl.replace(/^https?:\/\//, '')}
+                            </span>
                             <ExternalLink className="h-2.5 w-2.5 shrink-0" />
                           </a>
                         ) : (
@@ -564,11 +744,10 @@ export const MeetingsPage: React.FC = () => {
                                 onClick: () => openOutcomeModal(m),
                               },
                               {
-                                label: 'View Prospect',
-                                icon: ExternalLink,
-                                onClick: () => {
-                                  window.location.hash = '/leads';
-                                },
+                                label: 'Delete Meeting',
+                                icon: Trash2,
+                                variant: 'danger',
+                                onClick: () => handleDeleteMeeting(m.id),
                               },
                             ]}
                           />
@@ -616,7 +795,9 @@ export const MeetingsPage: React.FC = () => {
                 {m.meetingUrl && (
                   <div className="flex items-center gap-2 text-xs bg-slate-50 border border-border p-2 rounded-btn">
                     <Video className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="truncate font-mono text-[11px] text-txt-secondary">{m.meetingUrl}</span>
+                    <span className="truncate font-mono text-[11px] text-txt-secondary">
+                      {m.meetingUrl}
+                    </span>
                   </div>
                 )}
 
@@ -649,7 +830,7 @@ export const MeetingsPage: React.FC = () => {
                     {getStatusBadge(m.status)}
                     {getTypeBadge(m.meetingType)}
                   </div>
-                  <span className="text-[11px] text-txt-muted flex items-center gap-1 tabular-nums">
+                  <span className="text-[11px] font-semibold text-txt-muted tabular-nums flex items-center gap-1">
                     <Clock className="h-3 w-3" /> {m.time}
                   </span>
                 </div>
@@ -658,60 +839,60 @@ export const MeetingsPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSelectedMeeting(m)}
-                    className="font-bold text-sm text-txt-primary hover:text-[#57B71B] transition-colors line-clamp-2 text-left cursor-pointer"
+                    className="font-bold text-sm text-txt-primary hover:text-[#57B71B] transition-colors text-left block truncate w-full"
                   >
                     {m.title}
                   </button>
-                  <p className="text-[11px] text-txt-muted mt-0.5">{formatDate(m.date)} ({m.duration})</p>
+                  <p className="text-xs text-txt-secondary mt-0.5">
+                    {m.leadName} &bull; <span className="text-txt-muted">{m.companyName}</span>
+                  </p>
                 </div>
 
-                <div className="text-xs bg-slate-50/60 p-2.5 rounded-btn border border-slate-100 space-y-0.5">
-                  <div className="flex items-center gap-1.5 text-txt-primary font-medium">
-                    <User className="h-3 w-3 text-txt-muted shrink-0" />
-                    <span>{m.leadName}</span>
+                <div className="p-2.5 rounded-btn bg-slate-50 border border-slate-100 text-xs space-y-1">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-txt-muted">Date:</span>
+                    <span className="font-semibold text-txt-primary">{m.date}</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-txt-muted text-[11px] pl-4.5">
-                    <Building2 className="h-3 w-3 text-txt-muted shrink-0" />
-                    <span>{m.companyName}</span>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-txt-muted">Duration:</span>
+                    <span className="font-semibold text-txt-primary">{m.duration}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-txt-muted">Host:</span>
+                    <span className="font-semibold text-txt-primary">{m.hostName}</span>
                   </div>
                 </div>
 
-                {m.meetingUrl ? (
-                  <a
-                    href={m.meetingUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 text-xs text-txt-primary bg-slate-50 hover:bg-slate-100 border border-border p-2 rounded-btn transition-colors"
-                  >
+                {m.meetingUrl && (
+                  <div className="flex items-center gap-2 text-xs bg-slate-50 border border-border p-2 rounded-btn">
                     <Video className="h-3.5 w-3.5 text-primary shrink-0" />
-                    <span className="truncate font-mono text-[11px] text-txt-secondary flex-1">
-                      {m.meetingUrl}
-                    </span>
-                    <ExternalLink className="h-3 w-3 text-txt-muted shrink-0" />
-                  </a>
-                ) : (
-                  <div className="flex items-center gap-2 text-xs text-txt-muted bg-slate-50/50 border border-dashed border-border p-2 rounded-btn">
-                    <Video className="h-3.5 w-3.5 text-txt-muted shrink-0" />
-                    <span className="text-[11px] italic">No video meeting URL</span>
-                  </div>
-                )}
-
-                {m.outcomeSummary && (
-                  <div className="text-[11px] text-txt-secondary bg-emerald-50/50 border border-emerald-100 p-2 rounded-btn">
-                    <strong className="text-emerald-800 block text-[10px] uppercase font-bold">Outcome</strong>
-                    <p className="line-clamp-2">{m.outcomeSummary}</p>
+                    <a
+                      href={m.meetingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate font-mono text-[11px] text-txt-secondary hover:text-[#57B71B]"
+                    >
+                      {m.meetingUrl.replace(/^https?:\/\//, '')}
+                    </a>
                   </div>
                 )}
               </div>
 
-              <div className="px-4 py-3 bg-slate-50/40 border-t border-border flex items-center justify-between text-xs">
-                <span className="text-txt-muted text-[11px]">Host: {m.hostName}</span>
-                <div className="flex items-center gap-1.5">
+              <div className="p-3 px-4 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelectedMeeting(m)}
+                  className="h-7 text-xs px-2 text-txt-secondary hover:text-txt-primary"
+                >
+                  Details
+                </Button>
+                <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    variant="secondary"
+                    variant="outline"
                     onClick={() => openOutcomeModal(m)}
-                    className="h-7 text-xs px-2.5 bg-slate-100 hover:bg-slate-200 text-txt-primary font-semibold cursor-pointer"
+                    className="h-7 text-xs px-2.5 bg-white font-semibold"
                   >
                     {m.status === 'SCHEDULED' ? 'Log Outcome' : 'Outcome'}
                   </Button>
@@ -726,88 +907,79 @@ export const MeetingsPage: React.FC = () => {
       <Dialog open={isScheduleModalOpen} onOpenChange={setIsScheduleModalOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-base font-bold text-txt-primary">Schedule Demo / Meeting</DialogTitle>
+            <DialogTitle className="text-base font-bold text-txt-primary">
+              Schedule Meeting / Demo
+            </DialogTitle>
             <DialogDescription className="text-xs text-txt-muted">
-              Schedule a product demo, technical architecture session, or discovery meeting.
+              Book a live product walkthrough, technical discovery, or negotiation session.
             </DialogDescription>
           </DialogHeader>
+
+          {formError && (
+            <div className="p-2.5 text-xs bg-red-50 text-red-600 rounded-md border border-red-200 flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
 
           <form onSubmit={handleCreateMeeting} className="space-y-3 py-1">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-txt-primary">
-                Session Title <span className="text-red-500">*</span>
+                Meeting Title <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="e.g. B2B Wholesale Portal Architecture Demo"
+                placeholder="e.g. Omnichannel Retail App Architecture Demo"
                 value={newMeetingForm.title}
                 onChange={(e) => setNewMeetingForm({ ...newMeetingForm, title: e.target.value })}
-                className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
               />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary">Related Prospect / Lead</label>
+              <select
+                value={newMeetingForm.leadId}
+                onChange={(e) => setNewMeetingForm({ ...newMeetingForm, leadId: e.target.value })}
+                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+              >
+                <option value="">None / General Session</option>
+                {leads.map((lead: any) => (
+                  <option key={lead.id} value={lead.id}>
+                    {lead.companyName ? `${lead.companyName}${lead.fullName ? ` (${lead.fullName})` : ''}` : lead.fullName || 'Prospect'} {lead.phone ? `• ${lead.phone}` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Meeting Type</label>
+                <label className="text-xs font-semibold text-txt-primary">Session Modality</label>
                 <select
                   value={newMeetingForm.meetingType}
                   onChange={(e) =>
-                    setNewMeetingForm({ ...newMeetingForm, meetingType: e.target.value as MeetingType })
+                    setNewMeetingForm({
+                      ...newMeetingForm,
+                      meetingType: e.target.value as MeetingType,
+                    })
                   }
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-                >
-                  <option value="TECHNICAL_DEMO">Technical Demo</option>
-                  <option value="DISCOVERY">Discovery</option>
-                  <option value="PROPOSAL_REVIEW">Proposal Review</option>
-                  <option value="COMMERCIAL_NEGOTIATION">Negotiation</option>
-                </select>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Prospect</label>
-                <select
-                  value={newMeetingForm.leadId}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, leadId: e.target.value })}
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-                >
-                  {MOCK_LEADS.map((lead) => (
-                    <option key={lead.id} value={lead.id}>
-                      {lead.fullName} ({lead.companyName || 'Lead'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2.5">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Date</label>
-                <input
-                  type="date"
-                  required
-                  value={newMeetingForm.date}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, date: e.target.value })}
                   className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Time</label>
-                <input
-                  type="text"
-                  placeholder="11:30 AM"
-                  value={newMeetingForm.time}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, time: e.target.value })}
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
-                />
+                >
+                  <option value="DEMO">Technical Demo</option>
+                  <option value="DISCOVERY">Discovery Session</option>
+                  <option value="MEETING">Commercial Meeting</option>
+                  <option value="FOLLOW_UP">Proposal Review</option>
+                </select>
               </div>
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-txt-primary">Duration</label>
                 <select
                   value={newMeetingForm.duration}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, duration: e.target.value })}
+                  onChange={(e) =>
+                    setNewMeetingForm({ ...newMeetingForm, duration: e.target.value })
+                  }
                   className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
                 >
                   <option value="30 min">30 min</option>
@@ -820,31 +992,53 @@ export const MeetingsPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Host BDE</label>
-                <select
-                  value={newMeetingForm.hostName}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, hostName: e.target.value })}
+                <label className="text-xs font-semibold text-txt-primary">Date</label>
+                <input
+                  type="date"
+                  required
+                  value={newMeetingForm.date}
+                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, date: e.target.value })}
                   className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
-                >
-                  <option value="Arjun Verma">Arjun Verma</option>
-                  <option value="Priya Sharma">Priya Sharma</option>
-                </select>
+                />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Meeting Link</label>
+                <label className="text-xs font-semibold text-txt-primary">Start Time</label>
                 <input
                   type="text"
-                  placeholder="https://meet.google.com/..."
-                  value={newMeetingForm.meetingUrl}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, meetingUrl: e.target.value })}
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+                  placeholder="e.g. 11:30 AM"
+                  value={newMeetingForm.time}
+                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, time: e.target.value })}
+                  className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
                 />
               </div>
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Pre-Meeting Notes</label>
+              <label className="text-xs font-semibold text-txt-primary">Meeting URL / Location</label>
+              <input
+                type="text"
+                placeholder="e.g. https://meet.google.com/abc-xyz-demo"
+                value={newMeetingForm.meetingUrl}
+                onChange={(e) =>
+                  setNewMeetingForm({ ...newMeetingForm, meetingUrl: e.target.value })
+                }
+                className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle font-mono text-[11px]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary">Host</label>
+              <input
+                type="text"
+                disabled
+                value={user?.name || 'Administrator'}
+                className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-slate-50 text-txt-secondary cursor-not-allowed shadow-subtle"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary">Agenda / Notes</label>
               <textarea
                 rows={2}
                 placeholder="Key discovery questions or architecture points to demonstrate..."
@@ -861,6 +1055,7 @@ export const MeetingsPage: React.FC = () => {
                 size="sm"
                 onClick={() => setIsScheduleModalOpen(false)}
                 className="h-8 text-xs cursor-pointer"
+                disabled={isSubmitting}
               >
                 Cancel
               </Button>
@@ -868,8 +1063,16 @@ export const MeetingsPage: React.FC = () => {
                 type="submit"
                 size="sm"
                 className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                disabled={isSubmitting}
               >
-                Schedule Demo
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Scheduling...
+                  </>
+                ) : (
+                  'Schedule Demo'
+                )}
               </Button>
             </DialogFooter>
           </form>
@@ -877,15 +1080,28 @@ export const MeetingsPage: React.FC = () => {
       </Dialog>
 
       {/* 6. Log Outcome & Attendance Modal */}
-      <Dialog open={!!outcomeModalMeeting} onOpenChange={(open) => !open && setOutcomeModalMeeting(null)}>
+      <Dialog
+        open={!!outcomeModalMeeting}
+        onOpenChange={(open) => !open && setOutcomeModalMeeting(null)}
+      >
         {outcomeModalMeeting && (
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-base font-bold text-txt-primary">Log Attendance & Outcome</DialogTitle>
+              <DialogTitle className="text-base font-bold text-txt-primary">
+                Log Attendance & Outcome
+              </DialogTitle>
               <DialogDescription className="text-xs text-txt-muted">
-                Record attendance status, demonstration feedback, and next steps for {outcomeModalMeeting.title}.
+                Record attendance status, demonstration feedback, and next steps for{' '}
+                {outcomeModalMeeting.title}.
               </DialogDescription>
             </DialogHeader>
+
+            {formError && (
+              <div className="p-2.5 text-xs bg-red-50 text-red-600 rounded-md border border-red-200 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{formError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveOutcome} className="space-y-3 py-1">
               <div className="space-y-1">
@@ -899,7 +1115,6 @@ export const MeetingsPage: React.FC = () => {
                 >
                   <option value="COMPLETED">Completed</option>
                   <option value="NO_SHOW">No-Show</option>
-                  <option value="RESCHEDULED">Rescheduled</option>
                   <option value="CANCELLED">Cancelled</option>
                 </select>
               </div>
@@ -913,7 +1128,9 @@ export const MeetingsPage: React.FC = () => {
                   required
                   placeholder="Summary of client reception, validated requirements, and commercial intent..."
                   value={outcomeForm.outcomeSummary}
-                  onChange={(e) => setOutcomeForm({ ...outcomeForm, outcomeSummary: e.target.value })}
+                  onChange={(e) =>
+                    setOutcomeForm({ ...outcomeForm, outcomeSummary: e.target.value })
+                  }
                   className="w-full p-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle resize-none"
                 />
               </div>
@@ -924,7 +1141,9 @@ export const MeetingsPage: React.FC = () => {
                   type="text"
                   placeholder="e.g. Dispatch customized proposal within 48 hours"
                   value={outcomeForm.nextStepNotes}
-                  onChange={(e) => setOutcomeForm({ ...outcomeForm, nextStepNotes: e.target.value })}
+                  onChange={(e) =>
+                    setOutcomeForm({ ...outcomeForm, nextStepNotes: e.target.value })
+                  }
                   className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
                 />
               </div>
@@ -936,6 +1155,7 @@ export const MeetingsPage: React.FC = () => {
                   size="sm"
                   onClick={() => setOutcomeModalMeeting(null)}
                   className="h-8 text-xs cursor-pointer"
+                  disabled={isSubmitting}
                 >
                   Cancel
                 </Button>
@@ -943,8 +1163,16 @@ export const MeetingsPage: React.FC = () => {
                   type="submit"
                   size="sm"
                   className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                  disabled={isSubmitting}
                 >
-                  Save Outcome
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Outcome'
+                  )}
                 </Button>
               </DialogFooter>
             </form>
@@ -953,17 +1181,21 @@ export const MeetingsPage: React.FC = () => {
       </Dialog>
 
       {/* 7. Meeting Detail Preview Modal */}
-      <Dialog open={!!selectedMeeting} onOpenChange={(open) => !open && setSelectedMeeting(null)}>
+      <Dialog
+        open={!!selectedMeeting}
+        onOpenChange={(open) => !open && setSelectedMeeting(null)}
+      >
         {selectedMeeting && (
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <div className="flex items-center gap-2">
                 <div className="min-w-0">
-                  <DialogTitle className="text-base font-bold text-txt-primary">
+                  <DialogTitle className="text-base font-bold text-txt-primary truncate">
                     {selectedMeeting.title}
                   </DialogTitle>
                   <DialogDescription className="text-xs text-txt-muted">
-                    {selectedMeeting.meetingType.replace('_', ' ')} session with {selectedMeeting.companyName}
+                    {selectedMeeting.meetingType.replace('_', ' ')} session with{' '}
+                    {selectedMeeting.companyName}
                   </DialogDescription>
                 </div>
               </div>
@@ -978,18 +1210,26 @@ export const MeetingsPage: React.FC = () => {
                 <div className="flex justify-between items-center">
                   <span className="text-txt-muted font-medium">Prospect</span>
                   <span className="font-semibold text-txt-primary">
-                    {selectedMeeting.leadName} ({selectedMeeting.companyName})
+                    {selectedMeeting.leadName}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-txt-muted font-medium">Scheduled</span>
+                  <span className="text-txt-muted font-medium">Company</span>
+                  <span className="font-semibold text-txt-primary">
+                    {selectedMeeting.companyName}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-txt-muted font-medium">Scheduled Time</span>
                   <span className="font-semibold text-txt-primary tabular-nums">
-                    {selectedMeeting.time} • {formatDate(selectedMeeting.date)} ({selectedMeeting.duration})
+                    {selectedMeeting.date} at {selectedMeeting.time} ({selectedMeeting.duration})
                   </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-txt-muted font-medium">Host</span>
-                  <span className="font-semibold text-txt-primary">{selectedMeeting.hostName}</span>
+                  <span className="font-semibold text-txt-primary">
+                    {selectedMeeting.hostName}
+                  </span>
                 </div>
                 {selectedMeeting.meetingUrl && (
                   <div className="flex justify-between items-center">
@@ -998,7 +1238,7 @@ export const MeetingsPage: React.FC = () => {
                       href={selectedMeeting.meetingUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-mono text-primary hover:underline text-[11px] truncate max-w-[200px]"
+                      className="font-mono text-[11px] text-primary hover:underline truncate max-w-[200px]"
                     >
                       {selectedMeeting.meetingUrl}
                     </a>
@@ -1006,13 +1246,13 @@ export const MeetingsPage: React.FC = () => {
                 )}
               </div>
 
-              {selectedMeeting.notes && (
+              {selectedMeeting.description && (
                 <div className="space-y-1">
                   <span className="text-[11px] font-bold text-txt-muted uppercase tracking-wider">
-                    Pre-Meeting Notes
+                    Agenda / Notes
                   </span>
-                  <p className="p-2.5 bg-white rounded-btn border border-border text-txt-secondary leading-relaxed text-xs">
-                    {selectedMeeting.notes}
+                  <p className="p-2.5 bg-white rounded-btn border border-border text-txt-secondary leading-relaxed">
+                    {selectedMeeting.description}
                   </p>
                 </div>
               )}
@@ -1022,14 +1262,20 @@ export const MeetingsPage: React.FC = () => {
                   <span className="text-[11px] font-bold text-txt-muted uppercase tracking-wider">
                     Recorded Outcome
                   </span>
-                  <p className="p-2.5 bg-emerald-50/60 rounded-btn border border-emerald-100 text-emerald-900 leading-relaxed text-xs">
+                  <p className="p-2.5 bg-white rounded-btn border border-border text-txt-secondary leading-relaxed">
                     {selectedMeeting.outcomeSummary}
                   </p>
-                  {selectedMeeting.nextStepNotes && (
-                    <p className="text-[11px] text-txt-muted italic pl-1">
-                      Next Step: {selectedMeeting.nextStepNotes}
-                    </p>
-                  )}
+                </div>
+              )}
+
+              {selectedMeeting.nextStepNotes && (
+                <div className="space-y-1">
+                  <span className="text-[11px] font-bold text-txt-muted uppercase tracking-wider">
+                    Next Action Notes
+                  </span>
+                  <p className="p-2.5 bg-white rounded-btn border border-border text-txt-secondary leading-relaxed">
+                    {selectedMeeting.nextStepNotes}
+                  </p>
                 </div>
               )}
             </div>
@@ -1048,7 +1294,7 @@ export const MeetingsPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant="outline"
                   className="h-8 text-xs font-semibold cursor-pointer"
                   onClick={() => {
                     const m = selectedMeeting;
@@ -1058,15 +1304,21 @@ export const MeetingsPage: React.FC = () => {
                 >
                   Log Outcome
                 </Button>
-                <Button
-                  size="sm"
-                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
-                  asChild
-                >
-                  <Link to="/leads" onClick={() => setSelectedMeeting(null)}>
-                    View Prospect
-                  </Link>
-                </Button>
+                {selectedMeeting.meetingUrl && (
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                    asChild
+                  >
+                    <a
+                      href={selectedMeeting.meetingUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Launch Call
+                    </a>
+                  </Button>
+                )}
               </div>
             </DialogFooter>
           </DialogContent>

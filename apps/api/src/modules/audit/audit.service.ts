@@ -42,6 +42,22 @@ export class AuditService {
     }
   }
 
+  async recordTx(tx: any, params: CreateAuditLogParams) {
+    return tx.auditLog.create({
+      data: {
+        organizationId: params.organizationId,
+        userId: params.userId || null,
+        action: params.action,
+        resource: params.resource,
+        resourceId: params.resourceId || null,
+        details: params.details || {},
+        ipAddress: params.ipAddress || null,
+        userAgent: params.userAgent || null,
+        requestId: params.requestId || null,
+      },
+    });
+  }
+
   async findByOrganization(organizationId: string, limit: number = 50) {
     return this.prisma.auditLog.findMany({
       where: { organizationId },

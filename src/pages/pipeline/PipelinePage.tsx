@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { SearchInput } from '@/components/common/SearchInput';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
@@ -14,8 +15,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { MOCK_PIPELINE_STAGES, MOCK_DEALS } from '@/mocks/mockData';
-import { Deal } from '@/types/crm';
+import { crmApi } from '@/lib/api';
+import { Deal, PipelineStage } from '@/types/crm';
 import { formatCurrency } from '@/lib/utils';
 import {
   KanbanSquare,
@@ -28,29 +29,149 @@ import {
   CheckCircle2,
   X,
   TrendingUp,
+  Edit,
+  Trash2,
+  AlertCircle,
+  Loader2,
+  XCircle,
 } from 'lucide-react';
 
 export const PipelinePage: React.FC = () => {
-  const stages = MOCK_PIPELINE_STAGES;
-  const [deals, setDeals] = useState<Deal[]>(MOCK_DEALS);
+  const queryClient = useQueryClient();
+
   const [viewMode, setViewMode] = useState<'kanban' | 'table'>('kanban');
   const [searchQuery, setSearchQuery] = useState('');
   const [ownerFilter, setOwnerFilter] = useState('ALL');
   const [mobileStageFilter, setMobileStageFilter] = useState('ALL');
 
-  // Modal states
+  // Real API Queries
+  const {
+    data: rawStages = [],
+    isLoading: isStagesLoading,
+    isError: isStagesError,
+    error: stagesError,
+    refetch: refetchStages,
+  } = useQuery({
+    queryKey: ['pipeline-stages'],
+    queryFn: () => crmApi.getPipelineStages(),
+  });
+
+  const {
+    data: lostReasons = [],
+  } = useQuery({
+    queryKey: ['lost-reasons'],
+    queryFn: () => crmApi.getLostReasons(),
+  });
+
+  const {
+    data: dealsResponse,
+    isLoading: isDealsLoading,
+    isError: isDealsError,
+    error: dealsError,
+    refetch: refetchDeals,
+  } = useQuery({
+    queryKey: ['deals'],
+    queryFn: () => crmApi.getDeals({ limit: 100 }),
+  });
+
+  // Map Backend Deals into frontend Deal model
+  const rawDeals = useMemo(() => {
+    return dealsResponse?.items || dealsResponse?.data || [];
+  }, [dealsResponse]);
+
+  const deals: Deal[] = useMemo(() => {
+    return rawDeals.map((item: any) => ({
+      id: item.id,
+      title: item.title,
+      leadId: item.leadId ?? null,
+      leadName: item.leadName || item.companyName || 'Prospect',
+      companyName: item.leadName || undefined,
+      stageId: item.stageId,
+      stageName: item.stageName,
+      amount: Number(item.value) || 0,
+      currency: 'INR',
+      probability: item.probability ?? 50,
+      expectedCloseDate: item.expectedCloseDate ? item.expectedCloseDate.split('T')[0] : '',
+      ownerId: item.ownerId || '',
+      ownerName: item.ownerName || 'Unassigned',
+      status: item.status as 'OPEN' | 'WON' | 'LOST',
+      lostReasonId: item.lostReasonId ?? null,
+      lostReasonLabel: item.lostReasonLabel ?? null,
+      lostReasonNotes: item.lostReasonNotes ?? null,
+      wonNotes: item.wonNotes ?? null,
+      closedAt: item.closedAt ?? null,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+  }, [rawDeals]);
+
+  // Compute Stages with real aggregate counts and totals
+  const stages: PipelineStage[] = useMemo(() => {
+    if (!rawStages || rawStages.length === 0) return [];
+    return rawStages.map((s) => {
+      const stageDeals = deals.filter((d) => d.stageId === s.id);
+      const totalValue = stageDeals.reduce((sum, d) => sum + (d.amount || 0), 0);
+      return {
+        id: s.id,
+        name: s.name,
+        order: s.order,
+        dealCount: stageDeals.length,
+        totalValue,
+        stageType: s.stageType as 'OPEN' | 'WON' | 'LOST',
+      };
+    });
+  }, [rawStages, deals]);
+
+  // Modal & Form states
   const [selectedDeal, setSelectedDeal] = useState<Deal | null>(null);
+
+  // Add Deal Modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isAddSubmitting, setIsAddSubmitting] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
   const [newDealForm, setNewDealForm] = useState({
     title: '',
-    companyName: '',
-    leadName: '',
-    stageId: 'stage-1',
+    stageId: '',
     amount: 500000,
-    probability: 30,
-    expectedCloseDate: '2026-11-15',
-    ownerName: 'Arjun Verma',
+    probability: 50,
+    expectedCloseDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
   });
+
+  // Ensure default stageId is set when stages load
+  useEffect(() => {
+    if (stages.length > 0 && !newDealForm.stageId) {
+      setNewDealForm((prev) => ({ ...prev, stageId: stages[0].id }));
+    }
+  }, [stages, newDealForm.stageId]);
+
+  // Edit Deal Modal state
+  const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({
+    title: '',
+    amount: 0,
+    stageId: '',
+    probability: 50,
+    expectedCloseDate: '',
+  });
+
+  // Lost Deal Modal state
+  const [lostDealModal, setLostDealModal] = useState<Deal | null>(null);
+  const [selectedLostReasonId, setSelectedLostReasonId] = useState('');
+  const [lostReasonNotes, setLostReasonNotes] = useState('');
+  const [isLostSubmitting, setIsLostSubmitting] = useState(false);
+  const [lostError, setLostError] = useState<string | null>(null);
+
+  // Set default lost reason when modal opens
+  useEffect(() => {
+    if (lostReasons.length > 0 && !selectedLostReasonId) {
+      setSelectedLostReasonId(lostReasons[0].id);
+    }
+  }, [lostReasons, selectedLostReasonId]);
+
+  // Global action error banner
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Calculate totals
   const totalPipelineValue = useMemo(() => {
@@ -58,11 +179,11 @@ export const PipelinePage: React.FC = () => {
   }, [stages]);
 
   const totalDealsCount = useMemo(() => {
-    return stages.reduce((acc, s) => acc + s.dealCount, 0);
-  }, [stages]);
+    return deals.length;
+  }, [deals]);
 
   const uniqueOwners = useMemo(() => {
-    return Array.from(new Set(deals.map((d) => d.ownerName)));
+    return Array.from(new Set(deals.map((d) => d.ownerName).filter(Boolean)));
   }, [deals]);
 
   // Filter deals
@@ -83,7 +204,7 @@ export const PipelinePage: React.FC = () => {
         const q = searchQuery.toLowerCase();
         const matchesTitle = deal.title.toLowerCase().includes(q);
         const matchesCompany = (deal.companyName || '').toLowerCase().includes(q);
-        const matchesLead = deal.leadName.toLowerCase().includes(q);
+        const matchesLead = (deal.leadName || '').toLowerCase().includes(q);
         const matchesOwner = deal.ownerName.toLowerCase().includes(q);
 
         return matchesTitle || matchesCompany || matchesLead || matchesOwner;
@@ -114,60 +235,199 @@ export const PipelinePage: React.FC = () => {
     setMobileStageFilter('ALL');
   };
 
-  const handleAddDealSubmit = (e: React.FormEvent) => {
+  // --- API Handlers ---
+
+  const handleAddDealSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDealForm.title.trim()) return;
 
-    const newDeal: Deal = {
-      id: `deal-${Date.now()}`,
-      title: newDealForm.title,
-      leadId: `lead-${Date.now()}`,
-      leadName: newDealForm.leadName || newDealForm.companyName || 'Prospect',
-      companyName: newDealForm.companyName || undefined,
-      stageId: newDealForm.stageId,
-      amount: Number(newDealForm.amount) || 0,
-      currency: 'INR',
-      probability: Number(newDealForm.probability) || 20,
-      expectedCloseDate: newDealForm.expectedCloseDate,
-      ownerId: 'user-1',
-      ownerName: newDealForm.ownerName,
-      status: 'OPEN',
-    };
+    setIsAddSubmitting(true);
+    setAddError(null);
+    try {
+      await crmApi.createDeal({
+        title: newDealForm.title.trim(),
+        value: Number(newDealForm.amount) || 0,
+        stageId: newDealForm.stageId || (stages[0]?.id ?? ''),
+        probability: Number(newDealForm.probability) || 50,
+        expectedCloseDate: newDealForm.expectedCloseDate
+          ? new Date(newDealForm.expectedCloseDate).toISOString()
+          : undefined,
+      });
 
-    setDeals([newDeal, ...deals]);
-    setIsAddModalOpen(false);
-    setNewDealForm({
-      title: '',
-      companyName: '',
-      leadName: '',
-      stageId: 'stage-1',
-      amount: 500000,
-      probability: 30,
-      expectedCloseDate: '2026-11-15',
-      ownerName: 'Arjun Verma',
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      setIsAddModalOpen(false);
+      setNewDealForm({
+        title: '',
+        stageId: stages[0]?.id || '',
+        amount: 500000,
+        probability: 50,
+        expectedCloseDate: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      });
+    } catch (err: any) {
+      setAddError(err?.message || 'Failed to create deal. Please try again.');
+    } finally {
+      setIsAddSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (deal: Deal) => {
+    setEditingDeal(deal);
+    setEditError(null);
+    setEditForm({
+      title: deal.title,
+      amount: deal.amount,
+      stageId: deal.stageId,
+      probability: deal.probability,
+      expectedCloseDate: deal.expectedCloseDate,
     });
   };
 
-  const handleAdvanceStage = (deal: Deal) => {
-    const currentIndex = stages.findIndex((s) => s.id === deal.stageId);
-    if (currentIndex < stages.length - 1) {
-      const nextStage = stages[currentIndex + 1];
-      const updated = deals.map((d) => (d.id === deal.id ? { ...d, stageId: nextStage.id } : d));
-      setDeals(updated);
-      if (selectedDeal && selectedDeal.id === deal.id) {
-        setSelectedDeal({ ...selectedDeal, stageId: nextStage.id });
+  const handleEditDealSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDeal || !editForm.title.trim()) return;
+
+    setIsEditSubmitting(true);
+    setEditError(null);
+    try {
+      // 1. Update basic fields
+      await crmApi.updateDeal(editingDeal.id, {
+        title: editForm.title.trim(),
+        value: Number(editForm.amount) || 0,
+        probability: Number(editForm.probability) || 50,
+        expectedCloseDate: editForm.expectedCloseDate
+          ? new Date(editForm.expectedCloseDate).toISOString()
+          : undefined,
+      });
+
+      // 2. If stage changed, update stage
+      if (editForm.stageId && editForm.stageId !== editingDeal.stageId) {
+        await crmApi.updateDealStage(editingDeal.id, editForm.stageId);
       }
+
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      setEditingDeal(null);
+      if (selectedDeal && selectedDeal.id === editingDeal.id) {
+        setSelectedDeal(null);
+      }
+    } catch (err: any) {
+      setEditError(err?.message || 'Failed to update deal.');
+    } finally {
+      setIsEditSubmitting(false);
+    }
+  };
+
+  const handleStageChange = async (dealId: string, targetStageId: string) => {
+    setActionError(null);
+    try {
+      await crmApi.updateDealStage(dealId, targetStageId);
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      if (selectedDeal && selectedDeal.id === dealId) {
+        setSelectedDeal((prev) => (prev ? { ...prev, stageId: targetStageId } : null));
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to update deal stage.');
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+    }
+  };
+
+  const handleAdvanceStage = async (deal: Deal) => {
+    const currentIndex = stages.findIndex((s) => s.id === deal.stageId);
+    if (currentIndex >= 0 && currentIndex < stages.length - 1) {
+      const nextStage = stages[currentIndex + 1];
+      await handleStageChange(deal.id, nextStage.id);
+    }
+  };
+
+  const handleMarkWon = async (deal: Deal) => {
+    setActionError(null);
+    try {
+      await crmApi.markDealWon(deal.id);
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      setSelectedDeal(null);
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to mark deal as Closed-Won.');
+    }
+  };
+
+  const handleOpenLostModal = (deal: Deal) => {
+    setLostDealModal(deal);
+    setSelectedLostReasonId(lostReasons[0]?.id || '');
+    setLostReasonNotes('');
+    setLostError(null);
+  };
+
+  const handleLostSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lostDealModal || !selectedLostReasonId) return;
+
+    setIsLostSubmitting(true);
+    setLostError(null);
+    try {
+      await crmApi.markDealLost(
+        lostDealModal.id,
+        selectedLostReasonId,
+        lostReasonNotes.trim() || undefined,
+      );
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      setLostDealModal(null);
+      if (selectedDeal && selectedDeal.id === lostDealModal.id) {
+        setSelectedDeal(null);
+      }
+    } catch (err: any) {
+      setLostError(err?.message || 'Failed to mark deal as Closed-Lost.');
+    } finally {
+      setIsLostSubmitting(false);
+    }
+  };
+
+  const handleDeleteDeal = async (deal: Deal) => {
+    if (!window.confirm(`Are you sure you want to delete deal "${deal.title}"?`)) {
+      return;
+    }
+
+    setActionError(null);
+    try {
+      await crmApi.deleteDeal(deal.id);
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      if (selectedDeal && selectedDeal.id === deal.id) {
+        setSelectedDeal(null);
+      }
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to delete deal.');
     }
   };
 
   const hasActiveFilters = searchQuery !== '' || ownerFilter !== 'ALL' || mobileStageFilter !== 'ALL';
+  const isLoading = isStagesLoading || isDealsLoading;
+  const isError = isStagesError || isDealsError;
 
   return (
     <div className="space-y-4 select-none">
+      {/* Action Error Banner */}
+      {actionError && (
+        <div className="flex items-center justify-between p-3 rounded-card bg-red-50 border border-red-200 text-xs text-red-700">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+            <span>{actionError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-red-500 hover:text-red-700 cursor-pointer"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* 1. Standardized Page Header */}
       <PageHeader
         title="Pipeline"
-        count={`${formatCurrency(totalPipelineValue)} (${totalDealsCount} deals)`}
+        count={
+          isLoading
+            ? 'Loading...'
+            : `${formatCurrency(totalPipelineValue)} (${totalDealsCount} deals)`
+        }
         description="Active revenue stages, deal progression, and sales conversion velocity"
         actions={
           <div className="flex items-center gap-2">
@@ -203,7 +463,10 @@ export const PipelinePage: React.FC = () => {
 
             <Button
               size="sm"
-              onClick={() => setIsAddModalOpen(true)}
+              onClick={() => {
+                setAddError(null);
+                setIsAddModalOpen(true);
+              }}
               className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer shadow-subtle"
             >
               <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
@@ -260,14 +523,42 @@ export const PipelinePage: React.FC = () => {
         />
       </div>
 
-      {/* 4. Main Pipeline Content */}
-      {viewMode === 'kanban' ? (
+      {/* 4. Loading / Error / Main Pipeline Content */}
+      {isLoading ? (
+        <div className="h-64 flex flex-col items-center justify-center gap-2 text-txt-muted text-xs bg-white rounded-card border border-border shadow-card">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <span>Loading sales pipeline from database...</span>
+        </div>
+      ) : isError ? (
+        <div className="p-6 text-center bg-white rounded-card border border-red-200 shadow-card space-y-3">
+          <AlertCircle className="h-8 w-8 text-red-500 mx-auto" />
+          <h3 className="text-sm font-semibold text-txt-primary">Failed to load pipeline data</h3>
+          <p className="text-xs text-txt-muted">
+            {((stagesError || dealsError) as any)?.message || 'An unexpected error occurred while communicating with the backend.'}
+          </p>
+          <Button
+            size="sm"
+            onClick={() => {
+              refetchStages();
+              refetchDeals();
+            }}
+            className="text-xs bg-primary text-white"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : stages.length === 0 ? (
+        <div className="p-8 text-center bg-white rounded-card border border-border shadow-card text-txt-muted text-xs">
+          No pipeline stages configured. Please ensure stages are seeded in the database.
+        </div>
+      ) : viewMode === 'kanban' ? (
         /* KANBAN BOARD VIEW */
         <div className="relative w-full overflow-x-auto pb-3 pt-1">
-          <div className="flex gap-3 items-start min-w-[1080px] sm:min-w-[1240px]">
+          <div className="flex gap-3 items-start min-w-[1400px]">
             {stages.map((stage) => {
               const stageDeals = filteredDeals.filter((d) => d.stageId === stage.id);
               const isWonStage = stage.stageType === 'WON';
+              const isLostStage = stage.stageType === 'LOST';
 
               return (
                 <div
@@ -275,6 +566,8 @@ export const PipelinePage: React.FC = () => {
                   className={`flex-1 min-w-[220px] max-w-[280px] rounded-card border flex flex-col gap-2.5 p-2.5 transition-colors ${
                     isWonStage
                       ? 'bg-emerald-50/40 border-emerald-200'
+                      : isLostStage
+                      ? 'bg-rose-50/40 border-rose-200'
                       : 'bg-slate-50/80 border-border'
                   }`}
                 >
@@ -288,6 +581,8 @@ export const PipelinePage: React.FC = () => {
                         className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full tabular-nums shrink-0 ${
                           isWonStage
                             ? 'bg-emerald-100 text-emerald-800'
+                            : isLostStage
+                            ? 'bg-rose-100 text-rose-800'
                             : 'bg-white text-txt-secondary border border-border'
                         }`}
                       >
@@ -300,8 +595,21 @@ export const PipelinePage: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Stage Cards Container */}
-                  <div className="space-y-2 min-h-[140px] flex-1">
+                  {/* Stage Cards Container with HTML5 Drop Zone */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const droppedDealId = e.dataTransfer.getData('text/plain');
+                      if (droppedDealId) {
+                        handleStageChange(droppedDealId, stage.id);
+                      }
+                    }}
+                    className="space-y-2 min-h-[140px] flex-1 rounded"
+                  >
                     {stageDeals.length === 0 ? (
                       <div className="h-28 flex flex-col items-center justify-center border border-dashed border-border rounded-btn text-center p-2 text-txt-muted text-[11px]">
                         <span>No active deals</span>
@@ -310,8 +618,12 @@ export const PipelinePage: React.FC = () => {
                       stageDeals.map((deal) => (
                         <div
                           key={deal.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('text/plain', deal.id);
+                          }}
                           onClick={() => setSelectedDeal(deal)}
-                          className="bg-white rounded-card border border-border p-3 space-y-2 shadow-card hover:border-slate-300 hover:shadow-subtle transition-all cursor-pointer group select-none active:scale-[0.99]"
+                          className="bg-white rounded-card border border-border p-3 space-y-2 shadow-card hover:border-slate-300 hover:shadow-subtle transition-all cursor-grab active:cursor-grabbing group select-none active:scale-[0.99]"
                         >
                           {/* Deal Header: Title */}
                           <div className="flex items-start justify-between gap-1.5">
@@ -330,6 +642,27 @@ export const PipelinePage: React.FC = () => {
                                     label: 'Advance Stage',
                                     icon: TrendingUp,
                                     onClick: () => handleAdvanceStage(deal),
+                                  },
+                                  {
+                                    label: 'Edit Deal',
+                                    icon: Edit,
+                                    onClick: () => handleOpenEditModal(deal),
+                                  },
+                                  {
+                                    label: 'Mark Won',
+                                    icon: CheckCircle2,
+                                    onClick: () => handleMarkWon(deal),
+                                  },
+                                  {
+                                    label: 'Mark Lost',
+                                    icon: AlertCircle,
+                                    onClick: () => handleOpenLostModal(deal),
+                                  },
+                                  {
+                                    label: 'Delete Deal',
+                                    icon: Trash2,
+                                    variant: 'danger',
+                                    onClick: () => handleDeleteDeal(deal),
                                   },
                                 ]}
                               />
@@ -356,7 +689,7 @@ export const PipelinePage: React.FC = () => {
                           <div className="flex items-center justify-between text-[10px] text-txt-muted pt-0.5">
                             <div className="flex items-center gap-1 tabular-nums">
                               <Calendar className="h-3 w-3 text-txt-muted" />
-                              <span>{deal.expectedCloseDate}</span>
+                              <span>{deal.expectedCloseDate || '—'}</span>
                             </div>
 
                             <div className="flex items-center gap-1">
@@ -450,7 +783,7 @@ export const PipelinePage: React.FC = () => {
                         {/* Expected Close */}
                         <TableCell>
                           <span className="text-xs text-txt-secondary tabular-nums">
-                            {deal.expectedCloseDate}
+                            {deal.expectedCloseDate || '—'}
                           </span>
                         </TableCell>
 
@@ -484,6 +817,27 @@ export const PipelinePage: React.FC = () => {
                                 label: 'Advance Stage',
                                 icon: TrendingUp,
                                 onClick: () => handleAdvanceStage(deal),
+                              },
+                              {
+                                label: 'Edit Deal',
+                                icon: Edit,
+                                onClick: () => handleOpenEditModal(deal),
+                              },
+                              {
+                                label: 'Mark Won',
+                                icon: CheckCircle2,
+                                onClick: () => handleMarkWon(deal),
+                              },
+                              {
+                                label: 'Mark Lost',
+                                icon: AlertCircle,
+                                onClick: () => handleOpenLostModal(deal),
+                              },
+                              {
+                                label: 'Delete Deal',
+                                icon: Trash2,
+                                variant: 'danger',
+                                onClick: () => handleDeleteDeal(deal),
                               },
                             ]}
                           />
@@ -538,12 +892,12 @@ export const PipelinePage: React.FC = () => {
                     Current Stage
                   </span>
                   <span className="text-xs font-semibold text-primary">
-                    {stages.find((s) => s.id === selectedDeal.stageId)?.name}
+                    {stages.find((s) => s.id === selectedDeal.stageId)?.name || selectedDeal.stageName || 'Open'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-txt-secondary pt-1">
                   <span>Win Probability: <strong>{selectedDeal.probability}%</strong></span>
-                  <span>Target Date: <strong>{selectedDeal.expectedCloseDate}</strong></span>
+                  <span>Target Date: <strong>{selectedDeal.expectedCloseDate || '—'}</strong></span>
                 </div>
               </div>
 
@@ -569,8 +923,23 @@ export const PipelinePage: React.FC = () => {
                 </div>
               </div>
 
+              {/* Status details if WON/LOST */}
+              {selectedDeal.status === 'WON' && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded text-emerald-800 text-xs">
+                  <span className="font-semibold">Deal Won</span>
+                  {selectedDeal.wonNotes && <p className="mt-0.5">{selectedDeal.wonNotes}</p>}
+                </div>
+              )}
+
+              {selectedDeal.status === 'LOST' && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 rounded text-rose-800 text-xs">
+                  <span className="font-semibold">Deal Lost: {selectedDeal.lostReasonLabel || 'Closed Lost'}</span>
+                  {selectedDeal.lostReasonNotes && <p className="mt-0.5">{selectedDeal.lostReasonNotes}</p>}
+                </div>
+              )}
+
               {/* Stage Advancement Quick CTA */}
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-2 pt-1 flex-wrap">
                 <Button
                   size="sm"
                   onClick={() => handleAdvanceStage(selectedDeal)}
@@ -581,13 +950,26 @@ export const PipelinePage: React.FC = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    alert(`Deal marked as Closed-Won`);
-                    setSelectedDeal(null);
-                  }}
+                  onClick={() => handleMarkWon(selectedDeal)}
                   className="h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50 cursor-pointer"
                 >
                   <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Mark Won
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleOpenLostModal(selectedDeal)}
+                  className="h-8 text-xs border-rose-300 text-rose-700 hover:bg-rose-50 cursor-pointer"
+                >
+                  <XCircle className="mr-1.5 h-3.5 w-3.5" /> Mark Lost
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleOpenEditModal(selectedDeal)}
+                  className="h-8 text-xs cursor-pointer"
+                >
+                  <Edit className="mr-1.5 h-3.5 w-3.5" /> Edit
                 </Button>
               </div>
             </div>
@@ -616,6 +998,13 @@ export const PipelinePage: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
+          {addError && (
+            <div className="p-2.5 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-1.5">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{addError}</span>
+            </div>
+          )}
+
           <form onSubmit={handleAddDealSubmit} className="space-y-3 py-2 text-xs">
             <div className="space-y-1">
               <label className="text-caption text-txt-secondary block font-medium">
@@ -633,34 +1022,13 @@ export const PipelinePage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-2.5">
               <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">Company Name</label>
-                <input
-                  type="text"
-                  value={newDealForm.companyName}
-                  onChange={(e) => setNewDealForm({ ...newDealForm, companyName: e.target.value })}
-                  placeholder="e.g. Horizon Fintech"
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">Contact Person</label>
-                <input
-                  type="text"
-                  value={newDealForm.leadName}
-                  onChange={(e) => setNewDealForm({ ...newDealForm, leadName: e.target.value })}
-                  placeholder="e.g. Sandeep Varma"
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">Deal Amount (INR)</label>
+                <label className="text-caption text-txt-secondary block font-medium">
+                  Deal Amount (INR) <span className="text-red-500">*</span>
+                </label>
                 <input
                   type="number"
                   required
+                  min="0"
                   value={newDealForm.amount}
                   onChange={(e) => setNewDealForm({ ...newDealForm, amount: Number(e.target.value) })}
                   className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
@@ -719,14 +1087,216 @@ export const PipelinePage: React.FC = () => {
               </Button>
               <Button
                 type="submit"
+                disabled={isAddSubmitting}
                 size="sm"
                 className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
               >
-                Create Deal
+                {isAddSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Creating...
+                  </>
+                ) : (
+                  'Create Deal'
+                )}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
+      </Dialog>
+
+      {/* 7. Edit Deal Modal */}
+      <Dialog open={!!editingDeal} onOpenChange={(open) => !open && setEditingDeal(null)}>
+        {editingDeal && (
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-section-title text-txt-primary">Edit Deal</DialogTitle>
+              <DialogDescription className="text-xs text-txt-muted">
+                Update opportunity details and financials
+              </DialogDescription>
+            </DialogHeader>
+
+            {editError && (
+              <div className="p-2.5 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleEditDealSubmit} className="space-y-3 py-2 text-xs">
+              <div className="space-y-1">
+                <label className="text-caption text-txt-secondary block font-medium">
+                  Deal Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editForm.title}
+                  onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Amount (INR)</label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    value={editForm.amount}
+                    onChange={(e) => setEditForm({ ...editForm, amount: Number(e.target.value) })}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Pipeline Stage</label>
+                  <select
+                    value={editForm.stageId}
+                    onChange={(e) => setEditForm({ ...editForm, stageId: e.target.value })}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                  >
+                    {stages.map((stg) => (
+                      <option key={stg.id} value={stg.id}>
+                        {stg.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Win Probability (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={editForm.probability}
+                    onChange={(e) => setEditForm({ ...editForm, probability: Number(e.target.value) })}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-caption text-txt-secondary block font-medium">Expected Close Date</label>
+                  <input
+                    type="date"
+                    value={editForm.expectedCloseDate}
+                    onChange={(e) => setEditForm({ ...editForm, expectedCloseDate: e.target.value })}
+                    className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary tabular-nums"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setEditingDeal(null)}
+                  className="h-8 text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isEditSubmitting}
+                  size="sm"
+                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+                >
+                  {isEditSubmitting ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Saving...
+                    </>
+                  ) : (
+                    'Save Changes'
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        )}
+      </Dialog>
+
+      {/* 8. Mark Lost Modal */}
+      <Dialog open={!!lostDealModal} onOpenChange={(open) => !open && setLostDealModal(null)}>
+        {lostDealModal && (
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-section-title text-txt-primary">Mark Deal as Closed-Lost</DialogTitle>
+              <DialogDescription className="text-xs text-txt-muted">
+                Record lost reason and notes for post-mortem analysis
+              </DialogDescription>
+            </DialogHeader>
+
+            {lostError && (
+              <div className="p-2.5 rounded bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{lostError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleLostSubmit} className="space-y-3 py-2 text-xs">
+              <div className="space-y-1">
+                <label className="text-caption text-txt-secondary block font-medium">
+                  Lost Reason <span className="text-red-500">*</span>
+                </label>
+                <select
+                  required
+                  value={selectedLostReasonId}
+                  onChange={(e) => setSelectedLostReasonId(e.target.value)}
+                  className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                >
+                  {lostReasons.map((lr) => (
+                    <option key={lr.id} value={lr.id}>
+                      {lr.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-caption text-txt-secondary block font-medium">
+                  Debrief Notes (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={lostReasonNotes}
+                  onChange={(e) => setLostReasonNotes(e.target.value)}
+                  placeholder="Explain why the deal was lost (e.g. competitor pricing, feature gap)..."
+                  className="w-full rounded-input border border-border bg-white p-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary resize-none"
+                />
+              </div>
+
+              <DialogFooter className="pt-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setLostDealModal(null)}
+                  className="h-8 text-xs cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isLostSubmitting}
+                  size="sm"
+                  className="h-8 text-xs bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
+                >
+                  {isLostSubmitting ? (
+                    <>
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> Marking Lost...
+                    </>
+                  ) : (
+                    'Confirm Closed-Lost'
+                  )}
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        )}
       </Dialog>
     </div>
   );

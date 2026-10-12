@@ -24,7 +24,7 @@ export const DashboardLayout: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen bg-workspace text-txt-primary">
+    <div className="flex h-screen w-screen overflow-hidden bg-workspace text-txt-primary">
       {/* Collapsible Sidebar */}
       <Sidebar
         isOpen={sidebarOpen}
@@ -34,7 +34,7 @@ export const DashboardLayout: React.FC = () => {
       />
 
       {/* Main Viewport */}
-      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+      <div className="flex flex-1 flex-col h-full min-w-0 overflow-hidden">
         <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
 
         {/* Page Content */}

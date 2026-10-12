@@ -6,6 +6,7 @@ import { AuthLayout } from '@/layouts/AuthLayout';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { DashboardPage } from '@/pages/dashboard/DashboardPage';
 import { LeadsPage } from '@/pages/leads/LeadsPage';
+import { LeadDetailPage } from '@/pages/leads/LeadDetailPage';
 import { PipelinePage } from '@/pages/pipeline/PipelinePage';
 import { TasksPage } from '@/pages/tasks/TasksPage';
 import { ActivitiesPage } from '@/pages/activities/ActivitiesPage';
@@ -43,6 +44,10 @@ export const router = createBrowserRouter([
       {
         path: 'leads',
         element: <LeadsPage />,
+      },
+      {
+        path: 'leads/:id',
+        element: <LeadDetailPage />,
       },
       {
         path: 'pipeline',

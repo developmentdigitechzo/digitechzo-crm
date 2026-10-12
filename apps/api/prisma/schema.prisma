@@ -15,9 +15,15 @@ model Organization {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  users     User[]
-  auditLogs AuditLog[]
-  leads     Lead[]
+  users      User[]
+  auditLogs  AuditLog[]
+  leads      Lead[]
+  deals      Deal[]
+  tasks      Task[]
+  activities Activity[]
+  meetings   Meeting[]
+  proposals  Proposal[]
+  customers  Customer[]
 
   @@map("organizations")
 }
@@ -41,6 +47,15 @@ model User {
   ownedLeads      Lead[]              @relation("LeadOwner")
   nextActionLeads Lead[]              @relation("LeadNextActionOwner")
   qualifiedLeads  LeadQualification[] @relation("LeadQualifier")
+  ownedDeals      Deal[]              @relation("DealOwner")
+  assignedTasks   Task[]              @relation("TaskAssignee")
+  createdTasks    Task[]              @relation("TaskCreator")
+  activities      Activity[]          @relation("ActivityUser")
+  ownedMeetings    Meeting[]           @relation("MeetingOwner")
+  createdMeetings  Meeting[]           @relation("MeetingCreator")
+  ownedProposals   Proposal[]          @relation("ProposalOwner")
+  createdProposals Proposal[]          @relation("ProposalCreator")
+  ownedCustomers   Customer[]          @relation("CustomerOwner")
 
   @@index([organizationId])
   @@index([roleId])
@@ -137,6 +152,8 @@ model PipelineStage {
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
+  deals               Deal[]
+
   @@index([order])
   @@map("pipeline_stages")
 }
@@ -149,6 +166,8 @@ model LostReason {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  deals     Deal[]
+
   @@map("lost_reasons")
 }
 
@@ -160,7 +179,7 @@ model Lead {
   companyName       String?            @map("company_name")
   title             String?
   phone             String
-  email             String
+  email             String?
   source            String             // META_ADS, GOOGLE_ADS, WEBSITE_FORM, WHATSAPP, MANUAL, IMPORT, PHONE_INBOUND
   
   // Separation of Lifecycle Status, Priority, and Temperature
@@ -193,6 +212,12 @@ model Lead {
   owner             User               @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   nextActionOwner   User?              @relation("LeadNextActionOwner", fields: [nextActionOwnerId], references: [id], onDelete: SetNull)
   qualification     LeadQualification?
+  deals             Deal[]
+  tasks             Task[]
+  activities        Activity[]
+  meetings          Meeting[]
+  proposals         Proposal[]
+  customers         Customer[]         @relation("LeadCustomer")
 
   @@index([organizationId])
   @@index([ownerId])
@@ -229,4 +254,245 @@ model LeadQualification {
 
   @@index([leadId])
   @@map("lead_qualifications")
+}
+
+model Deal {
+  id                String         @id @default(uuid())
+  organizationId    String         @map("organization_id")
+  ownerId           String         @map("owner_id")
+  leadId            String         @map("lead_id")
+  stageId           String         @map("stage_id")
+  title             String
+  value             Decimal        @default(0) @db.Decimal(14, 2)
+  expectedCloseDate DateTime?      @map("expected_close_date")
+  probability       Int?           @default(50)
+  status            String         @default("OPEN") // OPEN, WON, LOST
+  lostReasonId      String?        @map("lost_reason_id")
+  lostReasonNotes   String?        @map("lost_reason_notes") @db.Text
+  closedAt          DateTime?      @map("closed_at")
+  wonNotes          String?        @map("won_notes") @db.Text
+  deletedAt         DateTime?      @map("deleted_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  owner             User           @relation("DealOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  lead              Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stage             PipelineStage  @relation(fields: [stageId], references: [id], onDelete: Restrict)
+  lostReason        LostReason?    @relation(fields: [lostReasonId], references: [id], onDelete: SetNull)
+
+  tasks             Task[]
+  activities        Activity[]
+  meetings          Meeting[]
+  proposals         Proposal[]
+  customers         Customer[]     @relation("DealCustomer")
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([leadId])
+  @@index([stageId])
+  @@index([status])
+  @@index([expectedCloseDate])
+  @@index([createdAt])
+  @@map("deals")
+}
+
+model Task {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  assigneeId      String       @map("assignee_id")
+  creatorId       String?      @map("creator_id")
+  leadId          String?      @map("lead_id")
+  dealId          String?      @map("deal_id")
+  taskType        String       @default("FOLLOW_UP") @map("task_type") // CALL, WHATSAPP, EMAIL, MEETING, PROPOSAL, FOLLOW_UP, REVIEW, OTHER
+  title           String
+  description     String?      @db.Text
+  dueDate         DateTime     @map("due_date")
+  priority        String       @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status          String       @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  completedAt     DateTime?    @map("completed_at")
+  completionNotes String?      @map("completion_notes") @db.Text
+  deletedAt       DateTime?    @map("deleted_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignee        User         @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: Restrict)
+  creator         User?        @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  lead            Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  deal            Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+
+  activities      Activity[]
+
+  @@index([organizationId])
+  @@index([assigneeId])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([status])
+  @@index([priority])
+  @@index([dueDate])
+  @@index([createdAt])
+  @@map("tasks")
+}
+
+model Activity {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  userId          String       @map("user_id")
+  leadId          String?      @map("lead_id")
+  dealId          String?      @map("deal_id")
+  taskId          String?      @map("task_id")
+  meetingId       String?      @map("meeting_id")
+  activityType    String       @map("activity_type") // CALL, EMAIL, WHATSAPP, NOTE, MEETING, TASK, SYSTEM
+  direction       String?      // INBOUND, OUTBOUND
+  subject         String
+  description     String?      @db.Text
+  activityDate    DateTime     @default(now()) @map("activity_date")
+  durationSeconds Int?         @map("duration_seconds")
+  outcome         String?
+  metadata        Json?
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User         @relation("ActivityUser", fields: [userId], references: [id], onDelete: Restrict)
+  lead            Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal            Deal?        @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  task            Task?        @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  meeting         Meeting?     @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([taskId])
+  @@index([meetingId])
+  @@index([activityType])
+  @@index([activityDate])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+model Meeting {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  leadId         String       @map("lead_id")
+  dealId         String?      @map("deal_id")
+  title          String
+  description    String?      @db.Text
+  meetingType    String       @default("MEETING") @map("meeting_type") // MEETING, DEMO, DISCOVERY, FOLLOW_UP
+  startTime      DateTime     @map("start_time")
+  endTime        DateTime     @map("end_time")
+  location       String?
+  ownerId        String       @map("owner_id")
+  creatorId      String?      @map("creator_id")
+  status         String       @default("SCHEDULED") // SCHEDULED, COMPLETED, CANCELLED, NO_SHOW
+  outcome        String?
+  notes          String?      @db.Text
+  completedAt    DateTime?    @map("completed_at")
+  cancelledAt    DateTime?    @map("cancelled_at")
+  cancelReason   String?      @map("cancel_reason")
+  deletedAt      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead           Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal           Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  owner          User         @relation("MeetingOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  creator        User?        @relation("MeetingCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  activities     Activity[]
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([status])
+  @@index([startTime])
+  @@index([meetingType])
+  @@index([createdAt])
+  @@map("meetings")
+}
+
+model Proposal {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  leadId          String       @map("lead_id")
+  dealId          String?      @map("deal_id")
+  proposalNumber  String       @map("proposal_number")
+  title           String
+  description     String?      @db.Text
+  subtotal        Decimal      @default(0) @db.Decimal(14, 2)
+  discountAmount  Decimal      @default(0) @map("discount_amount") @db.Decimal(14, 2)
+  taxAmount       Decimal      @default(0) @map("tax_amount") @db.Decimal(14, 2)
+  totalAmount     Decimal      @default(0) @map("total_amount") @db.Decimal(14, 2)
+  currency        String       @default("INR")
+  validUntil      DateTime?    @map("valid_until")
+  status          String       @default("DRAFT") // DRAFT, SENT, VIEWED, NEGOTIATION, ACCEPTED, REJECTED, EXPIRED, CANCELLED
+  ownerId         String       @map("owner_id")
+  creatorId       String?      @map("creator_id")
+  sentAt          DateTime?    @map("sent_at")
+  acceptedAt      DateTime?    @map("accepted_at")
+  rejectedAt      DateTime?    @map("rejected_at")
+  rejectionReason String?      @map("rejection_reason")
+  notes           String?      @db.Text
+  deletedAt       DateTime?    @map("deleted_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead            Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  deal            Deal?        @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  owner           User         @relation("ProposalOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  creator         User?        @relation("ProposalCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, proposalNumber])
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([status])
+  @@index([validUntil])
+  @@index([createdAt])
+  @@map("proposals")
+}
+
+model Customer {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  leadId         String       @map("lead_id")
+  dealId         String?      @map("deal_id")
+  companyName    String       @map("company_name")
+  contactName    String       @map("contact_name")
+  title          String?
+  phone          String
+  email          String
+  address        String?
+  city           String?
+  state          String?
+  postalCode     String?      @map("postal_code")
+  country        String?      @default("India")
+  status         String       @default("ACTIVE") // ACTIVE, INACTIVE, AT_RISK, CHURNED
+  ownerId        String       @map("owner_id")
+  customerSince  DateTime     @default(now()) @map("customer_since")
+  notes          String?      @db.Text
+  deletedAt      DateTime?    @map("deleted_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead           Lead         @relation("LeadCustomer", fields: [leadId], references: [id], onDelete: Cascade)
+  deal           Deal?        @relation("DealCustomer", fields: [dealId], references: [id], onDelete: SetNull)
+  owner          User         @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId])
+  @@index([ownerId])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([status])
+  @@index([companyName])
+  @@index([email])
+  @@index([phone])
+  @@index([createdAt])
+  @@map("customers")
 }

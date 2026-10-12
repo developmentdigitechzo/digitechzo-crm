@@ -1,43 +1,128 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { useAuth } from '@/hooks/useAuth';
-import {
-  MOCK_LEADS,
-  MOCK_TASKS,
-  MOCK_PIPELINE_STAGES,
-  MOCK_ACTIVITIES,
-} from '@/mocks/mockData';
+import { crmApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   Clock,
   PhoneCall,
   Flame,
   Calendar,
-  PlusCircle,
   MessageSquare,
   TrendingUp,
   Activity,
-  KanbanSquare,
   Building2,
   ChevronRight,
+  CheckCircle2,
+  Users,
+  Mail,
+  Loader2,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const { user } = useAuth();
 
-  const totalPipelineValue = MOCK_PIPELINE_STAGES.reduce((acc, s) => acc + s.totalValue, 0);
-  const totalDealsCount = MOCK_PIPELINE_STAGES.reduce((acc, s) => acc + s.dealCount, 0);
-  const hotLeads = MOCK_LEADS.filter((l) => l.status === 'HOT');
-  const overdueTasks = MOCK_TASKS.filter((t) => t.status === 'OVERDUE');
-  const pendingTasks = MOCK_TASKS.filter((t) => t.status === 'PENDING');
+  // Dynamic Browser Date and Time State
+  const [currentTime, setCurrentTime] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const dayName = currentTime.toLocaleDateString('en-US', { weekday: 'long' });
+  const formattedDate = currentTime.toLocaleDateString('en-US', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+  const formattedTime = currentTime.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+
+  // Real Backend CRM Data Queries
+  const { data: leadsData, isLoading: leadsLoading } = useQuery({
+    queryKey: ['dashboard-leads'],
+    queryFn: () => crmApi.getLeads({ limit: 10 }),
+  });
+
+  const { data: dealsData, isLoading: dealsLoading } = useQuery({
+    queryKey: ['dashboard-deals'],
+    queryFn: () => crmApi.getDeals({ limit: 50 }),
+  });
+
+  const { data: tasksData, isLoading: tasksLoading } = useQuery({
+    queryKey: ['dashboard-tasks'],
+    queryFn: () => crmApi.getTasks({ limit: 10 }),
+  });
+
+  const { data: activitiesData, isLoading: activitiesLoading } = useQuery({
+    queryKey: ['dashboard-activities'],
+    queryFn: () => crmApi.getActivities({ limit: 10 }),
+  });
+
+  const leads: any[] = leadsData?.items || leadsData?.data || [];
+  const deals: any[] = dealsData?.items || dealsData?.data || [];
+  const tasks: any[] = tasksData?.data || tasksData?.items || [];
+  const activities: any[] = activitiesData?.data || activitiesData?.items || [];
+
+  const activeDeals = deals.filter((d) => d.status !== 'LOST');
+  const totalPipelineValue = activeDeals.reduce((acc, d) => acc + (Number(d.value) || 0), 0);
+  const totalDealsCount = activeDeals.length;
+
+  const hotLeads = leads.filter(
+    (l) => l.temperature === 'HOT' || l.priority === 'URGENT' || l.status === 'HOT'
+  );
+
+  const now = new Date();
+  const overdueTasks = tasks.filter((t) => {
+    if (t.status === 'OVERDUE') return true;
+    if (t.status === 'PENDING' && t.dueDate) {
+      return new Date(t.dueDate).getTime() < now.getTime();
+    }
+    return false;
+  });
+
+  const pendingTasks = tasks.filter((t) => t.status === 'PENDING');
+
+  const standardStages = [
+    { name: 'Qualification', stageType: 'OPEN' },
+    { name: 'Discovery', stageType: 'OPEN' },
+    { name: 'Proposal Sent', stageType: 'OPEN' },
+    { name: 'Negotiation', stageType: 'OPEN' },
+    { name: 'Closed Won', stageType: 'WON' },
+    { name: 'Closed Lost', stageType: 'LOST' },
+  ];
+
+  const stagesSummary = standardStages.map((stage) => {
+    const stageDeals = deals.filter(
+      (d) =>
+        (d.stage?.name && d.stage.name.toLowerCase() === stage.name.toLowerCase()) ||
+        (d.stageName && d.stageName.toLowerCase() === stage.name.toLowerCase())
+    );
+    const stageValue = stageDeals.reduce((sum, d) => sum + (Number(d.value) || 0), 0);
+    return {
+      name: stage.name,
+      stageType: stage.stageType,
+      dealCount: stageDeals.length,
+      totalValue: stageValue,
+    };
+  });
+
+  const isLoading = leadsLoading && dealsLoading && tasksLoading && activitiesLoading;
 
   return (
-    <div className="space-y-5 select-none">
-      {/* 1. Compact Page Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3.5 border-b border-border">
+    <div className="space-y-6 select-none">
+      {/* 1. Page Header with Dynamic Date & Time Widgets */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-border">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-txt-primary">
@@ -49,53 +134,91 @@ export const DashboardPage: React.FC = () => {
               </span>
             )}
           </div>
-          <p className="text-xs text-txt-muted mt-0.5">
+          <p className="text-xs text-txt-muted mt-1">
             Your sales activity and priority queue at a glance
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild className="h-8 text-xs">
-            <Link to="/pipeline">
-              <KanbanSquare className="mr-1.5 h-3.5 w-3.5 text-txt-muted" />
-              Pipeline
-            </Link>
-          </Button>
-          <Button size="sm" asChild className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white">
-            <Link to="/leads">
-              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-              Add Lead
-            </Link>
-          </Button>
+        {/* Dynamic Date & Current Time Widgets */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Today Date Widget */}
+          <div className="flex items-center gap-3 px-3.5 py-2 rounded-btn bg-white border border-border shadow-xs">
+            <div className="flex h-8 w-8 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0">
+              <Calendar className="h-4 w-4" />
+            </div>
+            <div className="text-left leading-tight">
+              <span className="text-[10px] font-bold text-txt-muted uppercase tracking-wider block">
+                Today
+              </span>
+              <span className="text-xs font-bold text-txt-primary block mt-0.5">
+                {dayName}
+              </span>
+              <span className="text-[11px] text-txt-secondary block mt-0.5">
+                {formattedDate}
+              </span>
+            </div>
+          </div>
+
+          {/* Current Time Widget */}
+          <div className="flex items-center gap-3 px-3.5 py-2 rounded-btn bg-white border border-border shadow-xs">
+            <div className="flex h-8 w-8 items-center justify-center rounded-btn bg-slate-100 text-slate-600 shrink-0">
+              <Clock className="h-4 w-4" />
+            </div>
+            <div className="text-left leading-tight">
+              <span className="text-[10px] font-bold text-txt-muted uppercase tracking-wider block">
+                Current Time
+              </span>
+              <span className="text-sm font-bold text-txt-primary font-tabular block mt-0.5">
+                {formattedTime}
+              </span>
+              <span className="text-[10px] text-[#57B71B] font-medium flex items-center gap-1 mt-0.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#57B71B] animate-pulse" /> Live
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* 2. KPI Summary: 4 Compact Action-Focused Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* 2. KPI Summary: 4 Action-Focused Metric Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Metric 1: Overdue */}
         <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-3.5 sm:p-4 flex items-center justify-between">
-            <div className="space-y-0.5">
+          <CardContent className="p-4 sm:p-5 flex items-center justify-between">
+            <div className="space-y-1">
               <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
                 Overdue
               </p>
-              <div className="text-2xl font-bold tracking-tight text-[#DC2626] font-tabular">
+              <div
+                className={`text-2xl font-bold tracking-tight font-tabular ${
+                  overdueTasks.length > 0 ? 'text-[#DC2626]' : 'text-txt-primary'
+                }`}
+              >
                 {overdueTasks.length}
               </div>
-              <p className="text-[11px] text-[#DC2626] font-medium flex items-center gap-1">
-                Action required
+              <p
+                className={`text-[11px] font-medium flex items-center gap-1 ${
+                  overdueTasks.length > 0 ? 'text-[#DC2626]' : 'text-txt-muted'
+                }`}
+              >
+                {overdueTasks.length > 0 ? 'Action required' : 'None overdue'}
               </p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-btn bg-[#FEF2F2] text-[#DC2626] shrink-0">
-              <Clock className="h-4 w-4" />
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 ${
+                overdueTasks.length > 0
+                  ? 'bg-[#FEF2F2] text-[#DC2626]'
+                  : 'bg-slate-100 text-txt-muted'
+              }`}
+            >
+              <Clock className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 2: Follow-ups Due */}
         <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-3.5 sm:p-4 flex items-center justify-between">
-            <div className="space-y-0.5">
+          <CardContent className="p-4 sm:p-5 flex items-center justify-between">
+            <div className="space-y-1">
               <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
                 Follow-ups Due
               </p>
@@ -103,39 +226,49 @@ export const DashboardPage: React.FC = () => {
                 {pendingTasks.length}
               </div>
               <p className="text-[11px] text-txt-secondary font-medium">
-                Pending today
+                {pendingTasks.length === 0 ? 'All caught up' : 'Pending tasks'}
               </p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0">
-              <PhoneCall className="h-4 w-4" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0">
+              <PhoneCall className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 3: Hot Leads */}
         <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-3.5 sm:p-4 flex items-center justify-between">
-            <div className="space-y-0.5">
+          <CardContent className="p-4 sm:p-5 flex items-center justify-between">
+            <div className="space-y-1">
               <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
                 Hot Leads
               </p>
-              <div className="text-2xl font-bold tracking-tight text-[#D97706] font-tabular">
+              <div
+                className={`text-2xl font-bold tracking-tight font-tabular ${
+                  hotLeads.length > 0 ? 'text-[#D97706]' : 'text-txt-primary'
+                }`}
+              >
                 {hotLeads.length}
               </div>
               <p className="text-[11px] text-txt-secondary font-medium">
-                High budget & intent
+                {hotLeads.length > 0 ? 'High priority' : 'No hot leads'}
               </p>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-btn bg-[#FFFBEB] text-[#D97706] shrink-0">
-              <Flame className="h-4 w-4" />
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 ${
+                hotLeads.length > 0
+                  ? 'bg-[#FFFBEB] text-[#D97706]'
+                  : 'bg-slate-100 text-txt-muted'
+              }`}
+            >
+              <Flame className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 4: Pipeline Value */}
         <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-1.5">
-            <div className="space-y-0.5 min-w-0">
+          <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-2">
+            <div className="space-y-1 min-w-0">
               <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
                 Active Pipeline
               </p>
@@ -143,29 +276,42 @@ export const DashboardPage: React.FC = () => {
                 {formatCurrency(totalPipelineValue)}
               </div>
               <p className="text-[10px] sm:text-[11px] text-[#16A34A] font-medium flex items-center gap-1 truncate">
-                <TrendingUp className="h-3 w-3 shrink-0" /> {totalDealsCount} deals
+                <TrendingUp className="h-3.5 w-3.5 shrink-0" /> {totalDealsCount} active deals
               </p>
             </div>
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-emerald-50 text-[#16A34A] shrink-0">
-              <Calendar className="h-4 w-4" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-emerald-50 text-[#16A34A] shrink-0">
+              <Calendar className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
       </div>
 
+      {isLoading && (
+        <div className="py-6 flex items-center justify-center text-xs text-txt-muted gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          Loading dashboard insights...
+        </div>
+      )}
+
       {/* 3. Main Operational Workspace (2-Column Desktop Grid) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column (7 cols): Action Priority Queue & Recent Leads */}
-        <div className="lg:col-span-7 space-y-5">
+        <div className="lg:col-span-7 space-y-6">
           {/* Priority Follow-ups / Action Queue */}
           <Card className="border-border shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between py-3 px-4 border-b border-border bg-slate-50/50">
+            <CardHeader className="flex flex-row items-center justify-between py-3.5 px-4 sm:px-5 border-b border-border bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Priority Follow-ups
                 </CardTitle>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-[#FEF2F2] text-[#DC2626] border border-rose-200">
-                  {MOCK_TASKS.length}
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                    tasks.length > 0
+                      ? 'bg-[#FEF2F2] text-[#DC2626] border border-rose-200'
+                      : 'bg-slate-100 text-txt-muted border border-border'
+                  }`}
+                >
+                  {tasks.length}
                 </span>
               </div>
               <Link
@@ -175,74 +321,94 @@ export const DashboardPage: React.FC = () => {
                 View all <ChevronRight className="h-3 w-3" />
               </Link>
             </CardHeader>
-            <CardContent className="p-0 divide-y divide-border">
-              {MOCK_TASKS.map((task) => {
-                const isOverdue = task.status === 'OVERDUE';
-                return (
-                  <div
-                    key={task.id}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 hover:bg-slate-50/80 transition-colors gap-2.5 sm:gap-0"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`flex h-8 w-8 items-center justify-center rounded-btn shrink-0 ${
-                          task.actionType === 'CALL'
-                            ? 'bg-[#F0FDF4] text-[#57B71B]'
-                            : task.actionType === 'WHATSAPP'
-                            ? 'bg-emerald-50 text-[#16A34A]'
-                            : 'bg-purple-50 text-[#7C3AED]'
-                        }`}
-                      >
-                        {task.actionType === 'CALL' && <PhoneCall className="h-3.5 w-3.5" />}
-                        {task.actionType === 'WHATSAPP' && <MessageSquare className="h-3.5 w-3.5" />}
-                        {task.actionType === 'MEETING' && <Calendar className="h-3.5 w-3.5" />}
-                      </div>
-                      <div className="min-w-0 space-y-0.5">
-                        <p className="text-xs font-bold text-txt-primary truncate">
-                          {task.title}
-                        </p>
-                        <p className="text-[11px] text-txt-muted truncate flex items-center gap-1.5">
-                          <Building2 className="h-3 w-3 shrink-0" />
-                          <span>{task.leadName}</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-1 sm:pt-0 border-t border-slate-100 sm:border-0">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={task.status} type="task" />
-                        <span
-                          className={`text-[11px] font-medium ${
-                            isOverdue ? 'text-[#DC2626]' : 'text-txt-muted'
-                          }`}
-                        >
-                          {task.dueTime || formatDate(task.dueDate)}
-                        </span>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="h-7 text-xs px-2.5 bg-slate-100 hover:bg-slate-200 text-txt-primary"
-                        asChild
-                      >
-                        <Link to="/activities">Log</Link>
-                      </Button>
-                    </div>
+            <CardContent className="p-0">
+              {tasks.length === 0 ? (
+                <div className="p-8 text-center flex flex-col items-center justify-center">
+                  <div className="h-10 w-10 rounded-full bg-[#F0FDF4] flex items-center justify-center text-[#57B71B] mb-2.5">
+                    <CheckCircle2 className="h-5 w-5" />
                   </div>
-                );
-              })}
+                  <p className="text-xs font-bold text-txt-primary">No pending follow-ups</p>
+                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5">
+                    All caught up! No scheduled calls, messages, or tasks are overdue.
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {tasks.slice(0, 5).map((task) => {
+                    const isOverdue = task.status === 'OVERDUE';
+                    const actionType = task.taskType || task.actionType || 'CALL';
+                    return (
+                      <div
+                        key={task.id}
+                        className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 sm:px-5 hover:bg-slate-50/80 transition-colors gap-2.5 sm:gap-0"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`flex h-8 w-8 items-center justify-center rounded-btn shrink-0 ${
+                              actionType === 'CALL'
+                                ? 'bg-[#F0FDF4] text-[#57B71B]'
+                                : actionType === 'WHATSAPP'
+                                ? 'bg-emerald-50 text-[#16A34A]'
+                                : actionType === 'EMAIL'
+                                ? 'bg-blue-50 text-[#2563EB]'
+                                : 'bg-purple-50 text-[#7C3AED]'
+                            }`}
+                          >
+                            {actionType === 'CALL' && <PhoneCall className="h-3.5 w-3.5" />}
+                            {actionType === 'WHATSAPP' && <MessageSquare className="h-3.5 w-3.5" />}
+                            {actionType === 'EMAIL' && <Mail className="h-3.5 w-3.5" />}
+                            {actionType !== 'CALL' &&
+                              actionType !== 'WHATSAPP' &&
+                              actionType !== 'EMAIL' && <Calendar className="h-3.5 w-3.5" />}
+                          </div>
+                          <div className="min-w-0 space-y-0.5">
+                            <p className="text-xs font-bold text-txt-primary truncate">
+                              {task.title}
+                            </p>
+                            <p className="text-[11px] text-txt-muted truncate flex items-center gap-1.5">
+                              <Building2 className="h-3 w-3 shrink-0" />
+                              <span>{task.lead?.fullName || task.leadName || 'General Follow-up'}</span>
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0 pt-1 sm:pt-0 border-t border-slate-100 sm:border-0">
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={task.status} type="task" />
+                            <span
+                              className={`text-[11px] font-medium ${
+                                isOverdue ? 'text-[#DC2626]' : 'text-txt-muted'
+                              }`}
+                            >
+                              {task.dueTime || formatDate(task.dueDate)}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-7 text-xs px-2.5 bg-slate-100 hover:bg-slate-200 text-txt-primary"
+                            asChild
+                          >
+                            <Link to="/activities">Log</Link>
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Recent Leads */}
           <Card className="border-border shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between py-3 px-4 border-b border-border bg-slate-50/50">
+            <CardHeader className="flex flex-row items-center justify-between py-3.5 px-4 sm:px-5 border-b border-border bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Recent Leads
                 </CardTitle>
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-txt-secondary border border-border">
-                  {MOCK_LEADS.length}
+                  {leads.length}
                 </span>
               </div>
               <Link
@@ -252,70 +418,83 @@ export const DashboardPage: React.FC = () => {
                 All leads <ChevronRight className="h-3 w-3" />
               </Link>
             </CardHeader>
-            <CardContent className="p-0 divide-y divide-border">
-              {MOCK_LEADS.slice(0, 4).map((lead) => (
-                <div
-                  key={lead.id}
-                  className="p-3.5 px-4 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/80 transition-colors gap-2 sm:gap-0"
-                >
-                  <div className="min-w-0 space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-txt-primary hover:text-[#57B71B] transition-colors">
-                        {lead.fullName}
-                      </span>
-                      <StatusBadge status={lead.status} type="lead" />
-                    </div>
-                    <p className="text-[11px] text-txt-secondary truncate">
-                      {lead.companyName} &bull; <span className="text-txt-muted">{lead.serviceInterest}</span>
-                    </p>
+            <CardContent className="p-0">
+              {leads.length === 0 ? (
+                <div className="p-8 text-center flex flex-col items-center justify-center">
+                  <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-txt-muted mb-2.5">
+                    <Users className="h-5 w-5" />
                   </div>
-
-                  <div className="text-left sm:text-right shrink-0 pt-1 sm:pt-0 border-t border-slate-100 sm:border-0">
-                    {lead.nextAction ? (
-                      <span className="text-[11px] text-[#57B71B] font-semibold block">
-                        Next: {lead.nextAction.actionType} ({lead.nextAction.time || formatDate(lead.nextAction.date)})
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-txt-muted block">No action scheduled</span>
-                    )}
-                    <span className="text-[10px] text-txt-muted block mt-0.5">
-                      Owner: {lead.ownerName}
-                    </span>
-                  </div>
+                  <p className="text-xs font-bold text-txt-primary">No leads recorded yet</p>
+                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5">
+                    Leads created by your sales team will automatically appear here.
+                  </p>
                 </div>
-              ))}
+              ) : (
+                <div className="divide-y divide-border">
+                  {leads.slice(0, 4).map((lead) => (
+                    <div
+                      key={lead.id}
+                      className="p-3.5 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/80 transition-colors gap-2 sm:gap-0"
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-txt-primary hover:text-[#57B71B] transition-colors">
+                            {lead.fullName}
+                          </span>
+                          <StatusBadge status={lead.status} type="lead" />
+                        </div>
+                        <p className="text-[11px] text-txt-secondary truncate">
+                          {lead.companyName || 'Individual'} &bull;{' '}
+                          <span className="text-txt-muted">{lead.serviceInterest || 'General Inquiry'}</span>
+                        </p>
+                      </div>
+
+                      <div className="text-left sm:text-right shrink-0 pt-1 sm:pt-0 border-t border-slate-100 sm:border-0">
+                        {lead.nextAction?.dueDate ? (
+                          <span className="text-[11px] text-[#57B71B] font-semibold block">
+                            Next: {lead.nextAction.type || 'Follow-up'} ({formatDate(lead.nextAction.dueDate)})
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-txt-muted block">No action scheduled</span>
+                        )}
+                        <span className="text-[10px] text-txt-muted block mt-0.5">
+                          Owner: {lead.ownerName || lead.owner?.name || 'Unassigned'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Right Column (5 cols): Pipeline Summary & Recent Sales Activity */}
-        <div className="lg:col-span-5 space-y-5">
+        <div className="lg:col-span-5 space-y-6">
           {/* Pipeline Snapshot */}
           <Card className="border-border shadow-none">
-            <CardHeader className="py-3 px-4 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
+            <CardHeader className="py-3.5 px-4 sm:px-5 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Pipeline Snapshot
                 </CardTitle>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-txt-secondary border border-border">
+                  {totalDealsCount}
+                </span>
               </div>
-              <Link
-                to="/pipeline"
-                className="text-xs text-[#57B71B] hover:text-[#469815] font-semibold flex items-center gap-1 transition-colors"
-              >
-                Kanban <ChevronRight className="h-3 w-3" />
-              </Link>
             </CardHeader>
-            <CardContent className="p-3.5 space-y-2">
-              {MOCK_PIPELINE_STAGES.map((stage) => {
+            <CardContent className="p-4 space-y-2.5">
+              {stagesSummary.map((stage) => {
                 const isWon = stage.stageType === 'WON';
-                const percentage = totalPipelineValue > 0
-                  ? Math.round((stage.totalValue / totalPipelineValue) * 100)
-                  : 0;
+                const percentage =
+                  totalPipelineValue > 0
+                    ? Math.round((stage.totalValue / totalPipelineValue) * 100)
+                    : 0;
 
                 return (
                   <div
-                    key={stage.id}
-                    className="p-2 rounded-btn border border-border/60 bg-white hover:bg-slate-50 transition-colors space-y-1.5"
+                    key={stage.name}
+                    className="p-2.5 rounded-btn border border-border/60 bg-white hover:bg-slate-50 transition-colors space-y-1.5"
                   >
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">
@@ -337,12 +516,12 @@ export const DashboardPage: React.FC = () => {
                     </div>
 
                     {/* Stage Distribution Progress Bar */}
-                    <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${
+                        className={`h-full rounded-full transition-all duration-300 ${
                           isWon ? 'bg-[#16A34A]' : 'bg-[#57B71B]'
                         }`}
-                        style={{ width: `${Math.max(percentage, 5)}%` }}
+                        style={{ width: `${stage.dealCount > 0 ? Math.max(percentage, 5) : 0}%` }}
                       />
                     </div>
                   </div>
@@ -353,11 +532,14 @@ export const DashboardPage: React.FC = () => {
 
           {/* Recent Activity Stream */}
           <Card className="border-border shadow-none">
-            <CardHeader className="py-3 px-4 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
+            <CardHeader className="py-3.5 px-4 sm:px-5 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Recent Activity
                 </CardTitle>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-txt-secondary border border-border">
+                  {activities.length}
+                </span>
               </div>
               <Link
                 to="/activities"
@@ -366,23 +548,39 @@ export const DashboardPage: React.FC = () => {
                 History <ChevronRight className="h-3 w-3" />
               </Link>
             </CardHeader>
-            <CardContent className="p-3.5 divide-y divide-border">
-              {MOCK_ACTIVITIES.slice(0, 3).map((act) => (
-                <div key={act.id} className="py-2.5 first:pt-0 last:pb-0 space-y-1 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <Activity className="h-3 w-3 text-txt-muted shrink-0" />
-                      <span className="font-bold text-txt-primary truncate">{act.title}</span>
-                    </div>
-                    <span className="text-[10px] text-txt-muted shrink-0 font-medium">
-                      {formatDate(act.createdAt)}
-                    </span>
+            <CardContent className="p-4">
+              {activities.length === 0 ? (
+                <div className="py-6 text-center flex flex-col items-center justify-center">
+                  <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center text-txt-muted mb-2">
+                    <Activity className="h-4 w-4" />
                   </div>
-                  <p className="text-[11px] text-txt-secondary leading-relaxed line-clamp-2 pl-4.5">
-                    {act.description}
+                  <p className="text-xs font-bold text-txt-primary">No recent activity</p>
+                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5">
+                    Sales calls, client communications, and deals history will appear here.
                   </p>
                 </div>
-              ))}
+              ) : (
+                <div className="divide-y divide-border">
+                  {activities.slice(0, 3).map((act) => (
+                    <div key={act.id} className="py-2.5 first:pt-0 last:pb-0 space-y-1 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <Activity className="h-3 w-3 text-txt-muted shrink-0" />
+                          <span className="font-bold text-txt-primary truncate">
+                            {act.subject || act.title || 'Activity'}
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-txt-muted shrink-0 font-medium">
+                          {formatDate(act.activityDate || act.createdAt)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-txt-secondary leading-relaxed line-clamp-2 pl-4.5">
+                        {act.description || 'No additional notes provided.'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

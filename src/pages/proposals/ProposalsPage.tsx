@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
 import { SearchInput } from '@/components/common/SearchInput';
@@ -17,7 +18,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { MOCK_LEADS, MOCK_DEALS } from '@/mocks/mockData';
+import { crmApi } from '@/lib/api';
+import { ProposalItem, ProposalStatus } from '@/types/crm';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import {
   PlusCircle,
@@ -29,96 +31,14 @@ import {
   Check,
   XCircle,
   Send,
+  Loader2,
+  AlertCircle,
+  Trash2,
 } from 'lucide-react';
 
-export type ProposalStatus = 'DRAFT' | 'SENT' | 'UNDER_REVIEW' | 'ACCEPTED' | 'DECLINED';
-
-export interface ProposalItem {
-  id: string;
-  quoteNumber: string;
-  clientName: string;
-  companyName: string;
-  leadId: string;
-  dealId?: string;
-  dealTitle?: string;
-  versionNumber: number;
-  versionLabel: string;
-  amount: number;
-  status: ProposalStatus;
-  validUntil: string;
-  ownerName: string;
-  scopeNotes?: string;
-}
-
-const INITIAL_PROPOSALS: ProposalItem[] = [
-  {
-    id: 'prop-1',
-    quoteNumber: 'DTZ-2026-Q104',
-    clientName: 'Rohan Deshmukh',
-    companyName: 'Apex Logistics Ltd',
-    leadId: 'lead-1',
-    dealId: 'deal-1',
-    dealTitle: 'B2B Wholesale Ordering Portal',
-    versionNumber: 2,
-    versionLabel: 'v2 (Revised)',
-    amount: 650000,
-    status: 'UNDER_REVIEW',
-    validUntil: '2026-10-31',
-    ownerName: 'Arjun Verma',
-    scopeNotes: 'Custom B2B ordering portal with distributor tiering, automated invoicing, and ERP API connectors.',
-  },
-  {
-    id: 'prop-2',
-    quoteNumber: 'DTZ-2026-Q105',
-    clientName: 'Ananya Iyer',
-    companyName: 'Zenith EdTech',
-    leadId: 'lead-2',
-    dealId: 'deal-2',
-    dealTitle: 'Performance Marketing Retainer Q4',
-    versionNumber: 1,
-    versionLabel: 'v1',
-    amount: 350000,
-    status: 'SENT',
-    validUntil: '2026-10-25',
-    ownerName: 'Arjun Verma',
-    scopeNotes: 'Quarterly digital marketing, multi-channel search ads, campaign tracking, and lead generation management.',
-  },
-  {
-    id: 'prop-3',
-    quoteNumber: 'DTZ-2026-Q102',
-    clientName: 'Rajesh Jain',
-    companyName: 'Vanguard Retail Solutions',
-    leadId: 'lead-5',
-    dealId: 'deal-3',
-    dealTitle: 'Omnichannel Customer Mobile App',
-    versionNumber: 1,
-    versionLabel: 'v1',
-    amount: 800000,
-    status: 'DRAFT',
-    validUntil: '2026-11-15',
-    ownerName: 'Priya Sharma',
-    scopeNotes: 'Native iOS and Android client loyalty application with inventory synchronization.',
-  },
-  {
-    id: 'prop-4',
-    quoteNumber: 'DTZ-2026-Q098',
-    clientName: 'Vikram Singhania',
-    companyName: 'CloudScale Technologies',
-    leadId: 'lead-3',
-    dealId: undefined, // Demonstrating supported Lead-only relationship
-    dealTitle: undefined,
-    versionNumber: 1,
-    versionLabel: 'v1',
-    amount: 1200000,
-    status: 'ACCEPTED',
-    validUntil: '2026-09-30',
-    ownerName: 'Arjun Verma',
-    scopeNotes: 'Cloud infrastructure security hardening, SOC2 readiness audit, and Kubernetes cluster migration.',
-  },
-];
-
 export const ProposalsPage: React.FC = () => {
-  const [proposals, setProposals] = useState<ProposalItem[]>(INITIAL_PROPOSALS);
+  const queryClient = useQueryClient();
+
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [clientFilter, setClientFilter] = useState<string>('ALL');
@@ -127,17 +47,121 @@ export const ProposalsPage: React.FC = () => {
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState<ProposalItem | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Form state
   const [newProposalForm, setNewProposalForm] = useState({
-    quoteNumber: `DTZ-2026-Q${106 + proposals.length - 4}`,
-    leadId: MOCK_LEADS[0]?.id || 'lead-1',
-    dealId: MOCK_DEALS[0]?.id || '',
+    title: '',
+    leadId: '',
+    dealId: '',
     amount: 500000,
-    validUntil: '2026-11-30',
-    ownerName: 'Arjun Verma',
+    validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     scopeNotes: '',
   });
+
+  // Real backend queries
+  const {
+    data: proposalsResponse,
+    isLoading: isProposalsLoading,
+    isError: isProposalsError,
+    error: proposalsError,
+    refetch: refetchProposals,
+  } = useQuery({
+    queryKey: ['proposals'],
+    queryFn: () => crmApi.getProposals({ limit: 100 }),
+  });
+
+  const { data: leadsResponse } = useQuery({
+    queryKey: ['leads'],
+    queryFn: () => crmApi.getLeads({ limit: 100 }),
+  });
+
+  const { data: dealsResponse } = useQuery({
+    queryKey: ['deals'],
+    queryFn: () => crmApi.getDeals({ limit: 100 }),
+  });
+
+  // Extract raw lists
+  const rawProposals = useMemo(() => {
+    return (
+      proposalsResponse?.data ||
+      proposalsResponse?.items ||
+      (Array.isArray(proposalsResponse) ? proposalsResponse : [])
+    );
+  }, [proposalsResponse]);
+
+  const leads = useMemo(() => {
+    return (
+      leadsResponse?.items ||
+      leadsResponse?.leads ||
+      (Array.isArray(leadsResponse?.data) ? leadsResponse?.data : leadsResponse?.data?.items) ||
+      []
+    );
+  }, [leadsResponse]);
+
+  const deals = useMemo(() => {
+    return (
+      dealsResponse?.deals ||
+      dealsResponse?.data ||
+      (Array.isArray(dealsResponse) ? dealsResponse : [])
+    );
+  }, [dealsResponse]);
+
+  // Set default leadId when leads load
+  useEffect(() => {
+    if (!newProposalForm.leadId && leads.length > 0) {
+      setNewProposalForm((prev) => ({ ...prev, leadId: leads[0].id }));
+    }
+  }, [leads, newProposalForm.leadId]);
+
+  // Map Backend proposals to frontend ProposalItem models
+  const proposals: ProposalItem[] = useMemo(() => {
+    return rawProposals.map((p: any) => {
+      let status: ProposalStatus = 'DRAFT';
+      if (p.status === 'REJECTED') {
+        status = 'DECLINED';
+      } else if (p.status === 'NEGOTIATION' || p.status === 'VIEWED') {
+        status = 'UNDER_REVIEW';
+      } else if (['DRAFT', 'SENT', 'ACCEPTED', 'EXPIRED', 'CANCELLED'].includes(p.status)) {
+        status = p.status as ProposalStatus;
+      }
+
+      let versionNumber = 1;
+      const vMatch = p.title?.match(/\(v(\d+)\)/i);
+      if (vMatch) {
+        versionNumber = parseInt(vMatch[1], 10);
+      }
+      const versionLabel = versionNumber > 1 ? `v${versionNumber} (Revised)` : `v${versionNumber}`;
+
+      const clientName = p.lead?.fullName || 'Direct Prospect';
+      const companyName = p.lead?.companyName || p.lead?.fullName || 'Direct Prospect';
+
+      return {
+        id: p.id,
+        quoteNumber: p.proposalNumber || `PROP-${p.id.slice(0, 8)}`,
+        proposalNumber: p.proposalNumber,
+        title: p.title,
+        clientName,
+        companyName,
+        leadId: p.leadId || '',
+        dealId: p.dealId || undefined,
+        dealTitle: p.deal?.title,
+        versionNumber,
+        versionLabel,
+        amount: Number(p.totalAmount ?? p.subtotal ?? 0),
+        status,
+        validUntil: p.validUntil ? p.validUntil.split('T')[0] : '',
+        ownerId: p.ownerId,
+        ownerName: p.owner?.name || 'Assigned Agent',
+        scopeNotes: p.description || p.notes || undefined,
+        description: p.description,
+        notes: p.notes,
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      };
+    });
+  }, [rawProposals]);
 
   // Derived counts and values
   const totalValue = useMemo(() => proposals.reduce((acc, p) => acc + p.amount, 0), [proposals]);
@@ -178,11 +202,12 @@ export const ProposalsPage: React.FC = () => {
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
         const matchesQuote = p.quoteNumber.toLowerCase().includes(query);
+        const matchesTitle = p.title.toLowerCase().includes(query);
         const matchesCompany = p.companyName.toLowerCase().includes(query);
         const matchesClient = p.clientName.toLowerCase().includes(query);
         const matchesDeal = (p.dealTitle || '').toLowerCase().includes(query);
         const matchesOwner = p.ownerName.toLowerCase().includes(query);
-        if (!matchesQuote && !matchesCompany && !matchesClient && !matchesDeal && !matchesOwner) {
+        if (!matchesQuote && !matchesTitle && !matchesCompany && !matchesClient && !matchesDeal && !matchesOwner) {
           return false;
         }
       }
@@ -217,65 +242,119 @@ export const ProposalsPage: React.FC = () => {
     }
   };
 
-  const handleCreateProposal = (e: React.FormEvent) => {
+  // Real backend create handler
+  const handleCreateProposal = async (e: React.FormEvent) => {
     e.preventDefault();
-    const lead = MOCK_LEADS.find((l) => l.id === newProposalForm.leadId);
-    const deal = MOCK_DEALS.find((d) => d.id === newProposalForm.dealId);
+    if (!newProposalForm.title.trim()) {
+      setFormError('Proposal title is required');
+      return;
+    }
 
-    const newProp: ProposalItem = {
-      id: `prop-${Date.now()}`,
-      quoteNumber: newProposalForm.quoteNumber.trim(),
-      clientName: lead?.fullName || 'Prospect',
-      companyName: lead?.companyName || 'Lead Company',
-      leadId: newProposalForm.leadId,
-      dealId: deal?.id,
-      dealTitle: deal?.title,
-      versionNumber: 1,
-      versionLabel: 'v1',
-      amount: Number(newProposalForm.amount) || 0,
-      status: 'DRAFT',
-      validUntil: newProposalForm.validUntil,
-      ownerName: newProposalForm.ownerName,
-      scopeNotes: newProposalForm.scopeNotes.trim() || undefined,
-    };
+    setIsSubmitting(true);
+    setFormError(null);
 
-    setProposals([newProp, ...proposals]);
-    setIsCreateModalOpen(false);
-    setNewProposalForm({
-      quoteNumber: `DTZ-2026-Q${106 + proposals.length - 3}`,
-      leadId: MOCK_LEADS[0]?.id || 'lead-1',
-      dealId: MOCK_DEALS[0]?.id || '',
-      amount: 500000,
-      validUntil: '2026-11-30',
-      ownerName: 'Arjun Verma',
-      scopeNotes: '',
-    });
-  };
+    try {
+      await crmApi.createProposal({
+        title: newProposalForm.title.trim(),
+        leadId: newProposalForm.leadId || undefined,
+        dealId: newProposalForm.dealId || undefined,
+        subtotal: Number(newProposalForm.amount) || 0,
+        totalAmount: Number(newProposalForm.amount) || 0,
+        validUntil: newProposalForm.validUntil ? new Date(newProposalForm.validUntil).toISOString() : undefined,
+        description: newProposalForm.scopeNotes.trim() || undefined,
+      });
 
-  // Revision handler: v(n+1)
-  const handleCreateRevision = (prop: ProposalItem) => {
-    const nextVer = prop.versionNumber + 1;
-    const revision: ProposalItem = {
-      ...prop,
-      id: `prop-${Date.now()}`,
-      versionNumber: nextVer,
-      versionLabel: `v${nextVer} (Revised)`,
-      status: 'DRAFT',
-    };
+      await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
 
-    setProposals([revision, ...proposals]);
-    if (selectedProposal && selectedProposal.id === prop.id) {
-      setSelectedProposal(revision);
+      setIsCreateModalOpen(false);
+      setNewProposalForm({
+        title: '',
+        leadId: leads[0]?.id || '',
+        dealId: '',
+        amount: 500000,
+        validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        scopeNotes: '',
+      });
+    } catch (err: any) {
+      setFormError(err.message || 'Failed to create proposal');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  // Mock status transition
-  const handleUpdateStatus = (propId: string, nextStatus: ProposalStatus) => {
-    setProposals((prev) =>
-      prev.map((p) => (p.id === propId ? { ...p, status: nextStatus } : p))
-    );
-    if (selectedProposal && selectedProposal.id === propId) {
-      setSelectedProposal((prev) => (prev ? { ...prev, status: nextStatus } : null));
+  // Revision handler: creates v(n+1) revision in real backend
+  const handleCreateRevision = async (prop: ProposalItem) => {
+    try {
+      const nextVer = prop.versionNumber + 1;
+      const baseTitle = prop.title.replace(/\s*\(v\d+\)/i, '').trim();
+      const newTitle = `${baseTitle} (v${nextVer})`;
+
+      await crmApi.createProposal({
+        title: newTitle,
+        leadId: prop.leadId || undefined,
+        dealId: prop.dealId || undefined,
+        subtotal: prop.amount,
+        totalAmount: prop.amount,
+        validUntil: prop.validUntil ? new Date(prop.validUntil).toISOString() : undefined,
+        description: prop.scopeNotes,
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      if (selectedProposal && selectedProposal.id === prop.id) {
+        setSelectedProposal(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to create revision:', err);
+    }
+  };
+
+  // Real backend status transition
+  const handleUpdateStatus = async (propId: string, nextStatus: ProposalStatus) => {
+    try {
+      let backendStatus = 'DRAFT';
+      let rejectionReason: string | undefined = undefined;
+
+      if (nextStatus === 'ACCEPTED') backendStatus = 'ACCEPTED';
+      else if (nextStatus === 'DECLINED') {
+        backendStatus = 'REJECTED';
+        rejectionReason = 'Declined by client';
+      } else if (nextStatus === 'UNDER_REVIEW') backendStatus = 'NEGOTIATION';
+      else if (nextStatus === 'SENT') backendStatus = 'SENT';
+      else if (nextStatus === 'DRAFT') backendStatus = 'DRAFT';
+
+      await crmApi.updateProposalStatus(propId, {
+        status: backendStatus,
+        rejectionReason,
+      });
+
+      await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      await queryClient.invalidateQueries({ queryKey: ['deals'] });
+      await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+      if (selectedProposal && selectedProposal.id === propId) {
+        setSelectedProposal((prev) => (prev ? { ...prev, status: nextStatus } : null));
+      }
+    } catch (err: any) {
+      console.error('Failed to update status:', err);
+    }
+  };
+
+  // Real backend delete handler
+  const handleDeleteProposal = async (propId: string) => {
+    if (!window.confirm('Are you sure you want to delete this proposal?')) return;
+    try {
+      await crmApi.deleteProposal(propId);
+      await queryClient.invalidateQueries({ queryKey: ['proposals'] });
+      if (selectedProposal?.id === propId) {
+        setSelectedProposal(null);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete proposal:', err);
     }
   };
 
@@ -291,7 +370,10 @@ export const ProposalsPage: React.FC = () => {
           <Button
             size="sm"
             className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer shrink-0"
-            onClick={() => setIsCreateModalOpen(true)}
+            onClick={() => {
+              setFormError(null);
+              setIsCreateModalOpen(true);
+            }}
           >
             <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
             Create Proposal
@@ -400,18 +482,37 @@ export const ProposalsPage: React.FC = () => {
         />
       </div>
 
+      {/* Loading & Error States */}
+      {isProposalsLoading && (
+        <div className="p-12 bg-white rounded-card border border-border flex flex-col items-center justify-center gap-3">
+          <Loader2 className="h-8 w-8 text-[#57B71B] animate-spin" />
+          <p className="text-xs text-txt-muted">Loading commercial proposals from server...</p>
+        </div>
+      )}
+
+      {isProposalsError && (
+        <div className="p-8 bg-red-50/50 rounded-card border border-red-200 flex flex-col items-center justify-center gap-3 text-center">
+          <AlertCircle className="h-8 w-8 text-red-600" />
+          <p className="text-sm font-semibold text-red-900">Failed to load proposals</p>
+          <p className="text-xs text-red-700 max-w-md">{(proposalsError as any)?.message || 'An error occurred while fetching proposal data.'}</p>
+          <Button size="sm" variant="outline" onClick={() => refetchProposals()} className="h-8 text-xs">
+            Retry Connection
+          </Button>
+        </div>
+      )}
+
       {/* 4. Primary View: Proposal Table */}
-      {filteredProposals.length === 0 ? (
+      {!isProposalsLoading && !isProposalsError && filteredProposals.length === 0 ? (
         <div className="p-8 bg-white rounded-card border border-border">
           <EmptyState
             icon={FileText}
             title="No proposals found"
             description="No quotation records match the current filter selection. Try resetting filters or create a new proposal."
             actionLabel={isFiltered ? "Reset filters" : "Create Proposal"}
-            onAction={isFiltered ? resetAllFilters : () => setIsCreateModalOpen(true)}
+            onAction={isFiltered ? resetAllFilters : () => { setFormError(null); setIsCreateModalOpen(true); }}
           />
         </div>
-      ) : (
+      ) : !isProposalsLoading && !isProposalsError && (
         <div className="space-y-3">
           {/* Desktop & Tablet Table (contained scrolling) */}
           <div className="hidden sm:block rounded-card border border-border bg-white overflow-hidden shadow-none">
@@ -420,6 +521,7 @@ export const ProposalsPage: React.FC = () => {
                 <TableHeader className="bg-slate-50/60">
                   <TableRow>
                     <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Quote #</TableHead>
+                    <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Title / Scope</TableHead>
                     <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Client / Deal</TableHead>
                     <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Version</TableHead>
                     <TableHead className="py-2.5 text-xs font-bold text-txt-muted uppercase">Amount</TableHead>
@@ -441,6 +543,18 @@ export const ProposalsPage: React.FC = () => {
                           <FileText className="h-3.5 w-3.5 shrink-0" />
                           <span>{p.quoteNumber}</span>
                         </button>
+                      </TableCell>
+                      <TableCell className="py-2.5">
+                        <div className="text-xs">
+                          <span className="font-semibold text-txt-primary block leading-tight truncate max-w-xs">
+                            {p.title}
+                          </span>
+                          {p.scopeNotes && (
+                            <span className="text-[11px] text-txt-muted truncate block max-w-xs">
+                              {p.scopeNotes}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="py-2.5">
                         <div className="text-xs">
@@ -473,7 +587,7 @@ export const ProposalsPage: React.FC = () => {
                       <TableCell className="py-2.5 text-xs font-medium tabular-nums text-txt-secondary">
                         <div className="flex items-center gap-1">
                           <Clock className="h-3 w-3 text-txt-muted shrink-0" />
-                          <span>{formatDate(p.validUntil)}</span>
+                          <span>{p.validUntil ? formatDate(p.validUntil) : '—'}</span>
                         </div>
                       </TableCell>
                       <TableCell className="py-2.5 text-xs text-txt-secondary font-medium">
@@ -502,15 +616,38 @@ export const ProposalsPage: React.FC = () => {
                                 icon: RotateCcw,
                                 onClick: () => handleCreateRevision(p),
                               },
+                              ...(p.status === 'DRAFT'
+                                ? [
+                                    {
+                                      label: 'Mark Sent',
+                                      icon: Send,
+                                      onClick: () => handleUpdateStatus(p.id, 'SENT'),
+                                    },
+                                  ]
+                                : []),
+                              ...(p.status !== 'ACCEPTED'
+                                ? [
+                                    {
+                                      label: 'Mark Accepted',
+                                      icon: Check,
+                                      onClick: () => handleUpdateStatus(p.id, 'ACCEPTED'),
+                                    },
+                                  ]
+                                : []),
+                              ...(p.status !== 'DECLINED'
+                                ? [
+                                    {
+                                      label: 'Mark Declined',
+                                      icon: XCircle,
+                                      onClick: () => handleUpdateStatus(p.id, 'DECLINED'),
+                                    },
+                                  ]
+                                : []),
                               {
-                                label: 'Mark Accepted',
-                                icon: Check,
-                                onClick: () => handleUpdateStatus(p.id, 'ACCEPTED'),
-                              },
-                              {
-                                label: 'Mark Declined',
-                                icon: XCircle,
-                                onClick: () => handleUpdateStatus(p.id, 'DECLINED'),
+                                label: 'Delete Proposal',
+                                icon: Trash2,
+                                variant: 'danger' as const,
+                                onClick: () => handleDeleteProposal(p.id),
                               },
                             ]}
                           />
@@ -548,14 +685,15 @@ export const ProposalsPage: React.FC = () => {
                 </div>
 
                 <div>
+                  <h4 className="font-bold text-xs text-txt-primary">{p.title}</h4>
                   <Link
                     to="/leads"
-                    className="font-bold text-xs text-txt-primary hover:text-[#57B71B] block"
+                    className="font-medium text-xs text-txt-secondary hover:text-[#57B71B] block mt-0.5"
                   >
                     {p.companyName}
                   </Link>
                   {p.dealTitle && (
-                    <p className="text-[11px] text-txt-secondary mt-0.5">{p.dealTitle}</p>
+                    <p className="text-[11px] text-txt-muted mt-0.5">{p.dealTitle}</p>
                   )}
                 </div>
 
@@ -565,7 +703,7 @@ export const ProposalsPage: React.FC = () => {
                 </div>
 
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="text-[11px] text-txt-muted">Valid: {formatDate(p.validUntil)}</span>
+                  <span className="text-[11px] text-txt-muted">Valid: {p.validUntil ? formatDate(p.validUntil) : '—'}</span>
                   <div className="flex items-center gap-1.5">
                     <Button
                       size="sm"
@@ -593,21 +731,29 @@ export const ProposalsPage: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleCreateProposal} className="space-y-3 py-1">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">
-                  Quote # <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newProposalForm.quoteNumber}
-                  onChange={(e) => setNewProposalForm({ ...newProposalForm, quoteNumber: e.target.value })}
-                  className="w-full h-8 px-2.5 text-xs font-mono rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-                />
-              </div>
+          {formError && (
+            <div className="p-2.5 rounded-btn bg-red-50 border border-red-200 text-xs text-red-600 flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{formError}</span>
+            </div>
+          )}
 
+          <form onSubmit={handleCreateProposal} className="space-y-3 py-1">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-txt-primary">
+                Proposal Title <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. Enterprise Cloud Architecture Proposal"
+                value={newProposalForm.title}
+                onChange={(e) => setNewProposalForm({ ...newProposalForm, title: e.target.value })}
+                className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-txt-primary">Client / Prospect</label>
                 <select
@@ -615,29 +761,30 @@ export const ProposalsPage: React.FC = () => {
                   onChange={(e) => setNewProposalForm({ ...newProposalForm, leadId: e.target.value })}
                   className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
                 >
-                  {MOCK_LEADS.map((lead) => (
+                  <option value="">None / Direct</option>
+                  {leads.map((lead: any) => (
                     <option key={lead.id} value={lead.id}>
-                      {lead.companyName || lead.fullName}
+                      {lead.companyName ? `${lead.companyName}${lead.fullName ? ` (${lead.fullName})` : ''}` : lead.fullName || 'Prospect'} {lead.phone ? `• ${lead.phone}` : ''}
                     </option>
                   ))}
                 </select>
               </div>
-            </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Related Deal</label>
-              <select
-                value={newProposalForm.dealId}
-                onChange={(e) => setNewProposalForm({ ...newProposalForm, dealId: e.target.value })}
-                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
-              >
-                <option value="">None (Lead Only Proposal)</option>
-                {MOCK_DEALS.map((deal) => (
-                  <option key={deal.id} value={deal.id}>
-                    {deal.title} ({formatCurrency(deal.amount)})
-                  </option>
-                ))}
-              </select>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-txt-primary">Related Deal</label>
+                <select
+                  value={newProposalForm.dealId}
+                  onChange={(e) => setNewProposalForm({ ...newProposalForm, dealId: e.target.value })}
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                >
+                  <option value="">None (Lead Only)</option>
+                  {deals.map((deal: any) => (
+                    <option key={deal.id} value={deal.id}>
+                      {deal.title} ({formatCurrency(Number(deal.amount || 0))})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -668,21 +815,6 @@ export const ProposalsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Owner</label>
-              <select
-                value={newProposalForm.ownerName}
-                onChange={(e) => setNewProposalForm({ ...newProposalForm, ownerName: e.target.value })}
-                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
-              >
-                {uniqueOwners.map((owner) => (
-                  <option key={owner} value={owner}>
-                    {owner}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
               <label className="text-xs font-semibold text-txt-primary">Scope Summary / Deliverables</label>
               <textarea
                 rows={2}
@@ -700,6 +832,7 @@ export const ProposalsPage: React.FC = () => {
                 size="sm"
                 onClick={() => setIsCreateModalOpen(false)}
                 className="h-8 text-xs cursor-pointer"
+                disabled={isSubmitting}
               >
                 Cancel
               </Button>
@@ -707,8 +840,16 @@ export const ProposalsPage: React.FC = () => {
                 type="submit"
                 size="sm"
                 className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                disabled={isSubmitting}
               >
-                Create Proposal
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  'Create Proposal'
+                )}
               </Button>
             </DialogFooter>
           </form>
@@ -741,6 +882,10 @@ export const ProposalsPage: React.FC = () => {
             <div className="space-y-3 py-2 text-xs">
               <div className="p-3 bg-slate-50 rounded-card border border-border space-y-2">
                 <div className="flex justify-between items-center">
+                  <span className="text-txt-muted font-medium">Title</span>
+                  <span className="font-semibold text-txt-primary">{selectedProposal.title}</span>
+                </div>
+                <div className="flex justify-between items-center">
                   <span className="text-txt-muted font-medium">Client / Company</span>
                   <span className="font-semibold text-txt-primary">{selectedProposal.companyName}</span>
                 </div>
@@ -761,7 +906,7 @@ export const ProposalsPage: React.FC = () => {
                 <div className="flex justify-between items-center">
                   <span className="text-txt-muted font-medium">Valid Until</span>
                   <span className="font-medium text-txt-primary tabular-nums">
-                    {formatDate(selectedProposal.validUntil)}
+                    {selectedProposal.validUntil ? formatDate(selectedProposal.validUntil) : '—'}
                   </span>
                 </div>
                 <div className="flex justify-between items-center">

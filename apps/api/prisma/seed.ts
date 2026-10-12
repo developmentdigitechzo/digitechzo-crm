@@ -64,6 +64,22 @@ export async function seedDatabase() {
     { resource: 'tasks', action: 'create', description: 'Create tasks' },
     { resource: 'tasks', action: 'update', description: 'Update tasks' },
     { resource: 'tasks', action: 'delete', description: 'Delete tasks' },
+    { resource: 'activities', action: 'read', description: 'View activity timeline' },
+    { resource: 'activities', action: 'create', description: 'Create activity logs' },
+    { resource: 'activities', action: 'update', description: 'Update activities' },
+    { resource: 'activities', action: 'delete', description: 'Delete activities' },
+    { resource: 'meetings', action: 'read', description: 'View scheduled meetings and demos' },
+    { resource: 'meetings', action: 'create', description: 'Schedule new meetings and demos' },
+    { resource: 'meetings', action: 'update', description: 'Update meeting details and status' },
+    { resource: 'meetings', action: 'delete', description: 'Cancel/delete meetings' },
+    { resource: 'proposals', action: 'read', description: 'View quotations and proposals' },
+    { resource: 'proposals', action: 'create', description: 'Create new proposals' },
+    { resource: 'proposals', action: 'update', description: 'Update proposals and status' },
+    { resource: 'proposals', action: 'delete', description: 'Delete proposals' },
+    { resource: 'customers', action: 'read', description: 'View customer accounts' },
+    { resource: 'customers', action: 'create', description: 'Create/convert customers' },
+    { resource: 'customers', action: 'update', description: 'Update customer details' },
+    { resource: 'customers', action: 'delete', description: 'Deactivate/delete customers' },
     { resource: 'reports', action: 'read', description: 'View executive analytics' },
   ];
 
@@ -94,6 +110,10 @@ export async function seedDatabase() {
     'leads:read', 'leads:create', 'leads:update',
     'deals:read', 'deals:create', 'deals:update',
     'tasks:read', 'tasks:create', 'tasks:update',
+    'activities:read', 'activities:create', 'activities:update',
+    'meetings:read', 'meetings:create', 'meetings:update',
+    'proposals:read', 'proposals:create', 'proposals:update',
+    'customers:read', 'customers:create', 'customers:update',
     'reports:read',
   ];
   const managerRoleId = rolesMap.get('MANAGER')!;
@@ -113,6 +133,10 @@ export async function seedDatabase() {
     'leads:read', 'leads:create', 'leads:update',
     'deals:read', 'deals:create', 'deals:update',
     'tasks:read', 'tasks:create', 'tasks:update',
+    'activities:read', 'activities:create', 'activities:update',
+    'meetings:read', 'meetings:create', 'meetings:update',
+    'proposals:read', 'proposals:create', 'proposals:update',
+    'customers:read', 'customers:create', 'customers:update',
     'reports:read',
   ];
   const bdeRoleId = rolesMap.get('BDE_SALES')!;
@@ -130,12 +154,13 @@ export async function seedDatabase() {
 
   // 5. Reference Pipeline Stages
   const stages = [
-    { name: 'Qualification', order: 1, stageType: 'OPEN', dealCountBenchmark: 8, totalValueBenchmark: 2400000 },
-    { name: 'Discovery', order: 2, stageType: 'OPEN', dealCountBenchmark: 5, totalValueBenchmark: 1750000 },
-    { name: 'Proposal Sent', order: 3, stageType: 'OPEN', dealCountBenchmark: 4, totalValueBenchmark: 1600000 },
-    { name: 'Negotiation', order: 4, stageType: 'OPEN', dealCountBenchmark: 3, totalValueBenchmark: 1200000 },
-    { name: 'Closed Won', order: 5, stageType: 'WON', dealCountBenchmark: 2, totalValueBenchmark: 950000 },
-    { name: 'Closed Lost', order: 6, stageType: 'LOST', dealCountBenchmark: 6, totalValueBenchmark: 1850000 },
+    { name: 'New Lead (Qualification)', order: 1, stageType: 'OPEN', dealCountBenchmark: 8, totalValueBenchmark: 2400000 },
+    { name: 'Discovery & Requirement Discussion', order: 2, stageType: 'OPEN', dealCountBenchmark: 5, totalValueBenchmark: 1750000 },
+    { name: 'Demo / Meeting Completed', order: 3, stageType: 'OPEN', dealCountBenchmark: 4, totalValueBenchmark: 1600000 },
+    { name: 'Proposal Sent', order: 4, stageType: 'OPEN', dealCountBenchmark: 4, totalValueBenchmark: 1500000 },
+    { name: 'Negotiation', order: 5, stageType: 'OPEN', dealCountBenchmark: 3, totalValueBenchmark: 1200000 },
+    { name: 'Closed Won', order: 6, stageType: 'WON', dealCountBenchmark: 2, totalValueBenchmark: 950000 },
+    { name: 'Closed Lost', order: 7, stageType: 'LOST', dealCountBenchmark: 6, totalValueBenchmark: 1850000 },
   ];
   for (const s of stages) {
     const existing = await prisma.pipelineStage.findFirst({ where: { order: s.order } });

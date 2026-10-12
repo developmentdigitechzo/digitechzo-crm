@@ -15,6 +15,12 @@ import { UsersModule } from './modules/users/users.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { LeadsModule } from './modules/leads/leads.module';
+import { DealsModule } from './modules/deals/deals.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { ActivitiesModule } from './modules/activities/activities.module';
+import { MeetingsModule } from './modules/meetings/meetings.module';
+import { ProposalsModule } from './modules/proposals/proposals.module';
+import { CustomersModule } from './modules/customers/customers.module';
 
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor';
@@ -39,6 +45,12 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     AuthModule,
     HealthModule,
     LeadsModule,
+    DealsModule,
+    TasksModule,
+    ActivitiesModule,
+    MeetingsModule,
+    ProposalsModule,
+    CustomersModule,
   ],
   providers: [
     {

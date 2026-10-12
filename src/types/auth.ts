@@ -1,17 +1,26 @@
 export type UserRole = 
-  | 'SUPER_ADMIN' 
   | 'ADMIN' 
-  | 'SALES_MANAGER' 
-  | 'BDE' 
+  | 'MANAGER' 
+  | 'BDE_SALES' 
   | 'MARKETING' 
-  | 'DELIVERY';
+  | 'DELIVERY'
+  | 'SUPER_ADMIN' 
+  | 'SALES_MANAGER' 
+  | 'BDE';
 
 export interface User {
   id: string;
   email: string;
+  name?: string;
   firstName: string;
   lastName: string;
   role: UserRole;
+  permissions?: string[];
+  organization?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
   teamId?: string;
   teamName?: string;
   avatarUrl?: string;
@@ -19,6 +28,8 @@ export interface User {
 
 export interface AuthSession {
   user: User;
-  token: string;
+  accessToken: string;
+  refreshToken?: string;
+  token?: string;
   expiresAt: string;
 }

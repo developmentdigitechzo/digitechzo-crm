@@ -1,52 +1,85 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { ShieldCheck, ArrowRight } from 'lucide-react';
+import { ArrowRight, AlertCircle, Loader2, Lock, Mail } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const [email, setEmail] = useState('arjun.v@digitechzo.com');
-  const [password, setPassword] = useState('password123');
-  const { login, allMockUsers } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const from = (location.state as any)?.from?.pathname || '/dashboard';
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
-    login(email);
-    navigate('/dashboard');
+    setError(null);
+
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      setError('Please provide both email address and password');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await login(cleanEmail, password);
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      setError(
+        err?.message || 'Authentication failed. Please verify your email and password.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleQuickSelect = (userEmail: string) => {
-    setEmail(userEmail);
-    login(userEmail);
-    navigate('/dashboard');
+  const handleUseAdminCredentials = () => {
+    setEmail('admin@digitechzo.com');
+    setPassword('AdminSecurePassword123!');
+    setError(null);
   };
 
   return (
     <Card className="shadow-lg border-[#2D3238] bg-white">
       <CardHeader className="space-y-1 pb-3">
         <CardTitle className="text-base font-bold text-[#1E242B]">Welcome back</CardTitle>
-        <p className="text-xs text-[#556070]">Sign in to access your sales workspace</p>
+        <p className="text-xs text-[#556070]">Sign in to access your CRM workspace</p>
       </CardHeader>
-      
+
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-3.5">
+          {error && (
+            <div className="p-3 rounded-btn bg-[#FEF2F2] border border-[#FECACA] flex items-start gap-2.5 text-xs text-[#DC2626]">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-[#DC2626]" />
+              <div className="flex-1 font-medium leading-relaxed">{error}</div>
+            </div>
+          )}
+
           <div className="space-y-1">
             <label htmlFor="login-email" className="text-caption text-txt-secondary block">
               Email address
             </label>
-            <Input
-              id="login-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@digitechzo.com"
-              required
-              autoComplete="email"
-            />
+            <div className="relative">
+              <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-txt-muted" />
+              <Input
+                id="login-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@digitechzo.com"
+                required
+                autoComplete="email"
+                disabled={isSubmitting}
+                className="pl-8 text-xs"
+              />
+            </div>
           </div>
 
           <div className="space-y-1">
@@ -62,38 +95,56 @@ export const LoginPage: React.FC = () => {
                 Forgot password?
               </a>
             </div>
-            <Input
-              id="login-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-            />
+            <div className="relative">
+              <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-txt-muted" />
+              <Input
+                id="login-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                required
+                autoComplete="current-password"
+                disabled={isSubmitting}
+                className="pl-8 text-xs"
+              />
+            </div>
           </div>
 
-          <Button type="submit" className="w-full mt-1 bg-[#57B71B] hover:bg-[#469815] text-white">
-            Sign In <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+          <Button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full mt-1 bg-[#57B71B] hover:bg-[#469815] text-white font-medium transition-colors"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Signing in...
+              </>
+            ) : (
+              <>
+                Sign In <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+              </>
+            )}
           </Button>
 
-          {/* Quick Mock Role Selector */}
+          {/* Quick Credential Helper for Functional Testing */}
           <div className="pt-3 border-t border-border">
-            <p className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider mb-2 flex items-center gap-1">
-              <ShieldCheck className="h-3 w-3 text-[#57B71B]" /> Quick Switch Role (Mock Auth)
-            </p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {allMockUsers.map((u) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onClick={() => handleQuickSelect(u.email)}
-                  className="p-1.5 rounded-btn border border-border bg-slate-50 hover:bg-emerald-50 hover:border-emerald-200 text-left text-xs transition-colors cursor-pointer"
-                  aria-label={`Login as ${u.firstName} (${u.role})`}
-                >
-                  <span className="font-semibold text-txt-primary block truncate">{u.firstName}</span>
-                  <span className="text-[10px] text-txt-muted block truncate">{u.role}</span>
-                </button>
-              ))}
+            <div className="rounded-btn bg-slate-50 border border-border p-2.5 text-xs text-txt-secondary flex items-center justify-between">
+              <div>
+                <p className="font-semibold text-txt-primary text-[11px]">Seeded Admin Account</p>
+                <p className="text-[10px] text-txt-muted font-mono">admin@digitechzo.com</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleUseAdminCredentials}
+                disabled={isSubmitting}
+                className="h-6 text-[10px] px-2 border-slate-300 hover:bg-slate-100"
+              >
+                Autofill
+              </Button>
             </div>
           </div>
         </CardContent>
