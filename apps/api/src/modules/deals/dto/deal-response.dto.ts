@@ -1,5 +1,39 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+export class PipelineStageResponseDto {
+  @ApiProperty({ description: 'Pipeline stage UUID' })
+  id: string;
+
+  @ApiProperty({ description: 'Pipeline stage name' })
+  name: string;
+
+  @ApiProperty({ description: 'Display order index' })
+  order: number;
+
+  @ApiProperty({ description: 'Stage type category (OPEN, WON, LOST)' })
+  stageType: string;
+
+  @ApiPropertyOptional({ description: 'Benchmark deal count' })
+  dealCountBenchmark?: number;
+
+  @ApiPropertyOptional({ description: 'Benchmark total value' })
+  totalValueBenchmark?: number;
+}
+
+export class LostReasonResponseDto {
+  @ApiProperty({ description: 'Lost reason UUID' })
+  id: string;
+
+  @ApiProperty({ description: 'Lost reason unique code' })
+  code: string;
+
+  @ApiProperty({ description: 'Display label' })
+  label: string;
+
+  @ApiProperty({ description: 'Whether the reason is active' })
+  isActive: boolean;
+}
+
 export class DealResponseDto {
   @ApiProperty({ description: 'Deal unique UUID' })
   id: string;
@@ -24,6 +58,9 @@ export class DealResponseDto {
 
   @ApiProperty({ description: 'Pipeline stage name' })
   stageName: string;
+
+  @ApiPropertyOptional({ type: () => PipelineStageResponseDto, description: 'Full pipeline stage details' })
+  stage?: PipelineStageResponseDto;
 
   @ApiProperty({ description: 'Deal title or opportunity name' })
   title: string;
@@ -77,38 +114,4 @@ export class PaginatedDealsResponseDto {
 
   @ApiProperty({ description: 'Total pages' })
   totalPages: number;
-}
-
-export class PipelineStageResponseDto {
-  @ApiProperty({ description: 'Pipeline stage UUID' })
-  id: string;
-
-  @ApiProperty({ description: 'Pipeline stage name' })
-  name: string;
-
-  @ApiProperty({ description: 'Display order index' })
-  order: number;
-
-  @ApiProperty({ description: 'Stage type category (OPEN, WON, LOST)' })
-  stageType: string;
-
-  @ApiPropertyOptional({ description: 'Benchmark deal count' })
-  dealCountBenchmark?: number;
-
-  @ApiPropertyOptional({ description: 'Benchmark total value' })
-  totalValueBenchmark?: number;
-}
-
-export class LostReasonResponseDto {
-  @ApiProperty({ description: 'Lost reason UUID' })
-  id: string;
-
-  @ApiProperty({ description: 'Lost reason unique code' })
-  code: string;
-
-  @ApiProperty({ description: 'Display label' })
-  label: string;
-
-  @ApiProperty({ description: 'Whether the reason is active' })
-  isActive: boolean;
 }

@@ -40,7 +40,7 @@ export class DealsService {
     user: AuthenticatedUser,
   ): Promise<PaginatedDealsResponseDto> {
     const page = Math.max(1, query.page || 1);
-    const limit = Math.min(100, Math.max(1, query.limit || 20));
+    const limit = Math.min(500, Math.max(1, query.limit || 20));
     const skip = (page - 1) * limit;
 
     const where: Prisma.DealWhereInput = {
@@ -772,6 +772,16 @@ export class DealsService {
       leadName: deal.lead?.fullName ?? null,
       stageId: deal.stageId,
       stageName: deal.stage?.name ?? 'Unknown Stage',
+      stage: deal.stage
+        ? {
+            id: deal.stage.id,
+            name: deal.stage.name,
+            order: deal.stage.order,
+            stageType: deal.stage.stageType,
+            dealCountBenchmark: deal.stage.dealCountBenchmark,
+            totalValueBenchmark: Number(deal.stage.totalValueBenchmark || 0),
+          }
+        : undefined,
       title: deal.title,
       value: Number(deal.value),
       expectedCloseDate: deal.expectedCloseDate instanceof Date ? deal.expectedCloseDate.toISOString() : deal.expectedCloseDate,

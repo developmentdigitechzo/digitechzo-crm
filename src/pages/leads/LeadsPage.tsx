@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
+import { MetricCard } from '@/components/common/MetricCard';
 import { SearchInput } from '@/components/common/SearchInput';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -21,6 +22,7 @@ import {
 import { crmApi } from '@/lib/api';
 import { Lead, LeadSource, TaskPriority, TaskActionType } from '@/types/crm';
 import { formatDate } from '@/lib/utils';
+import { CategorySelect, LEAD_CATEGORIES } from '@/components/leads/CategorySelect';
 import {
   PlusCircle,
   Download,
@@ -35,18 +37,45 @@ import {
   Loader2,
   FileSpreadsheet,
   CheckCircle2,
+  Users,
+  Flame,
+  SunMedium,
+  Trophy,
 } from 'lucide-react';
 
 export const LeadsPage: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const urlStatus = searchParams.get('status') || searchParams.get('filter') || 'ALL';
+
   // Filter & Search states
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [statusFilter, setStatusFilter] = useState<string>(urlStatus);
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
+  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
+
+  // Synchronize when searchParams changes (e.g. from Dashboard navigation)
+  useEffect(() => {
+    const s = searchParams.get('status') || searchParams.get('filter');
+    if (s) {
+      setStatusFilter(s.toUpperCase());
+    }
+  }, [searchParams]);
+
+  const handleStatusFilterChange = (newStatus: string) => {
+    setStatusFilter(newStatus);
+    if (newStatus === 'ALL') {
+      searchParams.delete('status');
+      searchParams.delete('filter');
+      setSearchParams(searchParams);
+    } else {
+      setSearchParams({ status: newStatus });
+    }
+  };
 
   // Add lead modal state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -61,7 +90,7 @@ export const LeadsPage: React.FC = () => {
     source: 'WEBSITE_FORM' as LeadSource,
     priority: 'MEDIUM' as TaskPriority,
     temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
-    serviceInterest: 'Custom Web Application Development',
+    serviceInterest: LEAD_CATEGORIES[0] as string,
     ownerName: 'DigiTechzo Administrator',
     nextActionDate: '',
     nextActionTime: '',
@@ -170,6 +199,11 @@ export const LeadsPage: React.FC = () => {
     return owners.length > 0 ? owners : ['DigiTechzo Administrator'];
   }, [leads]);
 
+  const uniqueCategories = useMemo(() => {
+    const fromLeads = Array.from(new Set(leads.map((l) => l.serviceInterest).filter(Boolean)));
+    return Array.from(new Set([...LEAD_CATEGORIES, ...fromLeads]));
+  }, [leads]);
+
   // Filtered leads
   const filteredLeads = useMemo(() => {
     return leads.filter((lead) => {
@@ -177,6 +211,9 @@ export const LeadsPage: React.FC = () => {
         return false;
       }
       if (sourceFilter !== 'ALL' && lead.source !== sourceFilter) {
+        return false;
+      }
+      if (categoryFilter !== 'ALL' && lead.serviceInterest !== categoryFilter) {
         return false;
       }
       if (ownerFilter !== 'ALL' && lead.ownerName !== ownerFilter) {
@@ -194,14 +231,35 @@ export const LeadsPage: React.FC = () => {
       }
       return true;
     });
-  }, [leads, statusFilter, sourceFilter, ownerFilter, searchQuery]);
+  }, [leads, statusFilter, sourceFilter, categoryFilter, ownerFilter, searchQuery]);
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setStatusFilter('ALL');
     setSourceFilter('ALL');
+    setCategoryFilter('ALL');
     setOwnerFilter('ALL');
   };
+
+  // Duplicate lead detector (normalized to 10 digits)
+  const findDuplicateLeadByPhone = (phoneInput: string, excludeLeadId?: string) => {
+    const digits = phoneInput.replace(/\D/g, '').slice(-10);
+    if (digits.length !== 10) return null;
+    return leads.find((l) => {
+      if (excludeLeadId && l.id === excludeLeadId) return false;
+      const leadDigits = (l.phone || '').replace(/\D/g, '').slice(-10);
+      return leadDigits === digits;
+    });
+  };
+
+  const createDuplicateLead = useMemo(() => {
+    return findDuplicateLeadByPhone(newLeadForm.phone);
+  }, [newLeadForm.phone, leads]);
+
+  const editDuplicateLead = useMemo(() => {
+    if (!editingLead) return null;
+    return findDuplicateLeadByPhone(editForm.phone, editingLead.id);
+  }, [editForm.phone, editingLead, leads]);
 
   // Create Lead
   const handleAddLeadSubmit = async (e: React.FormEvent) => {
@@ -209,19 +267,33 @@ export const LeadsPage: React.FC = () => {
     setCreateError(null);
 
     const cleanName = newLeadForm.fullName.trim();
-    let rawPhone = newLeadForm.phone.trim().replace(/[\s\-\(\)]/g, '');
-    if (!rawPhone.startsWith('+')) {
-      rawPhone = rawPhone.length === 10 ? `+91${rawPhone}` : `+${rawPhone}`;
+    const phoneDigits = newLeadForm.phone.replace(/\D/g, '');
+
+    if (!cleanName) {
+      setCreateError('Full Name is required.');
+      return;
+    }
+
+    if (phoneDigits.length !== 10) {
+      setCreateError(
+        phoneDigits.length === 0
+          ? 'Phone Number is required (must be exactly 10 digits).'
+          : `Phone Number must be exactly 10 digits. You entered ${phoneDigits.length} digit${phoneDigits.length === 1 ? '' : 's'}.`
+      );
+      return;
+    }
+
+    const existingWithPhone = findDuplicateLeadByPhone(phoneDigits);
+    if (existingWithPhone) {
+      setCreateError(
+        `This phone number (${phoneDigits}) is already registered for lead "${existingWithPhone.fullName}". Duplicate phone numbers are not allowed.`
+      );
+      return;
     }
 
     const cleanEmail = newLeadForm.email.trim()
       ? newLeadForm.email.trim().toLowerCase()
       : undefined;
-
-    if (!cleanName || !rawPhone) {
-      setCreateError('Full Name and Phone Number are required.');
-      return;
-    }
 
     setIsSubmitting(true);
     try {
@@ -229,12 +301,12 @@ export const LeadsPage: React.FC = () => {
         fullName: cleanName,
         companyName: newLeadForm.companyName.trim() || undefined,
         title: newLeadForm.title.trim() || undefined,
-        phone: rawPhone,
+        phone: phoneDigits,
         email: cleanEmail,
         source: newLeadForm.source,
         priority: newLeadForm.priority || 'MEDIUM',
         temperature: newLeadForm.temperature ? (newLeadForm.temperature as 'HOT' | 'WARM' | 'COLD') : undefined,
-        serviceInterest: newLeadForm.serviceInterest.trim() || 'Custom Web Application Development',
+        serviceInterest: newLeadForm.serviceInterest.trim() || LEAD_CATEGORIES[0],
         nextActionDueAt: newLeadForm.nextActionDate
           ? new Date(`${newLeadForm.nextActionDate}T${newLeadForm.nextActionTime || '10:00'}:00`).toISOString()
           : undefined,
@@ -255,7 +327,7 @@ export const LeadsPage: React.FC = () => {
         source: 'WEBSITE_FORM' as LeadSource,
         priority: 'MEDIUM' as TaskPriority,
         temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
-        serviceInterest: 'Custom Web Application Development',
+        serviceInterest: LEAD_CATEGORIES[0],
         ownerName: 'DigiTechzo Administrator',
         nextActionDate: '',
         nextActionTime: '',
@@ -279,11 +351,12 @@ export const LeadsPage: React.FC = () => {
   // Open Edit Lead Modal
   const handleOpenEdit = (lead: Lead) => {
     setEditingLead(lead);
+    const cleanDigits = (lead.phone || '').replace(/\D/g, '').slice(-10);
     setEditForm({
       fullName: lead.fullName,
       companyName: lead.companyName || '',
       title: lead.title || '',
-      phone: lead.phone,
+      phone: cleanDigits,
       email: lead.email || '',
       serviceInterest: lead.serviceInterest,
       priority: (lead as any).priority || 'MEDIUM',
@@ -298,9 +371,22 @@ export const LeadsPage: React.FC = () => {
     if (!editingLead) return;
     setEditError(null);
 
-    let rawPhone = editForm.phone.trim().replace(/[\s\-\(\)]/g, '');
-    if (!rawPhone.startsWith('+')) {
-      rawPhone = rawPhone.length === 10 ? `+91${rawPhone}` : `+${rawPhone}`;
+    const editPhoneDigits = editForm.phone.replace(/\D/g, '');
+    if (editPhoneDigits.length !== 10) {
+      setEditError(
+        editPhoneDigits.length === 0
+          ? 'Phone Number is required (must be exactly 10 digits).'
+          : `Phone Number must be exactly 10 digits. You entered ${editPhoneDigits.length} digit${editPhoneDigits.length === 1 ? '' : 's'}.`
+      );
+      return;
+    }
+
+    const duplicateInEdit = findDuplicateLeadByPhone(editPhoneDigits, editingLead.id);
+    if (duplicateInEdit) {
+      setEditError(
+        `This phone number (${editPhoneDigits}) is already registered for lead "${duplicateInEdit.fullName}". Duplicate phone numbers are not allowed.`
+      );
+      return;
     }
 
     setIsEditSubmitting(true);
@@ -313,7 +399,7 @@ export const LeadsPage: React.FC = () => {
         fullName: editForm.fullName.trim(),
         companyName: editForm.companyName.trim() || undefined,
         title: editForm.title.trim() || undefined,
-        phone: rawPhone,
+        phone: editPhoneDigits,
         email: cleanEditEmail,
         serviceInterest: editForm.serviceInterest.trim(),
         priority: editForm.priority,
@@ -513,9 +599,18 @@ export const LeadsPage: React.FC = () => {
         continue;
       }
 
-      let rawPhone = row.phone.replace(/[\s\-\(\)]/g, '');
-      if (!rawPhone.startsWith('+')) {
-        rawPhone = rawPhone.length === 10 ? `+91${rawPhone}` : `+${rawPhone}`;
+      const rowPhoneDigits = row.phone.replace(/\D/g, '').slice(-10);
+      if (rowPhoneDigits.length !== 10) {
+        failedCount++;
+        errors.push(`Row ${i + 1} (${row.fullName}): Phone number must be exactly 10 digits (found "${row.phone}")`);
+        continue;
+      }
+
+      const duplicateInCrm = findDuplicateLeadByPhone(rowPhoneDigits);
+      if (duplicateInCrm) {
+        failedCount++;
+        errors.push(`Row ${i + 1} (${row.fullName}): Phone number ${rowPhoneDigits} already exists for lead "${duplicateInCrm.fullName}".`);
+        continue;
       }
 
       try {
@@ -523,7 +618,7 @@ export const LeadsPage: React.FC = () => {
           fullName: row.fullName,
           companyName: row.companyName,
           title: row.title,
-          phone: rawPhone,
+          phone: rowPhoneDigits,
           email: row.email,
           source: row.source,
           priority: row.priority || 'MEDIUM',
@@ -574,7 +669,11 @@ export const LeadsPage: React.FC = () => {
   };
 
   const hasActiveFilters =
-    searchQuery !== '' || statusFilter !== 'ALL' || sourceFilter !== 'ALL' || ownerFilter !== 'ALL';
+    searchQuery !== '' ||
+    statusFilter !== 'ALL' ||
+    sourceFilter !== 'ALL' ||
+    categoryFilter !== 'ALL' ||
+    ownerFilter !== 'ALL';
 
   return (
     <div className="space-y-4 select-none pb-8">
@@ -584,15 +683,15 @@ export const LeadsPage: React.FC = () => {
         count={`${filteredLeads.length} of ${leads.length}`}
         description="Master sales records, prospective inquiries, and continuous pipeline tracker"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
             <Button
               variant="secondary"
               size="sm"
               onClick={handleExportCSV}
-              className="h-8 text-xs cursor-pointer border-border"
+              className="h-8 text-xs cursor-pointer border-border flex-1 sm:flex-none justify-center"
             >
               <Download className="mr-1.5 h-3.5 w-3.5 text-txt-muted" />
-              Export CSV
+              Export
             </Button>
             <Button
               variant="outline"
@@ -603,10 +702,10 @@ export const LeadsPage: React.FC = () => {
                 setImportRows([]);
                 setIsImportModalOpen(true);
               }}
-              className="h-8 text-xs cursor-pointer border-border hover:bg-slate-50"
+              className="h-8 text-xs cursor-pointer border-border hover:bg-slate-50 flex-1 sm:flex-none justify-center"
             >
               <Upload className="mr-1.5 h-3.5 w-3.5 text-txt-muted" />
-              Import CSV
+              Import
             </Button>
             <Button
               size="sm"
@@ -614,7 +713,7 @@ export const LeadsPage: React.FC = () => {
                 setCreateError(null);
                 setIsAddModalOpen(true);
               }}
-              className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer shadow-subtle"
+              className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer shadow-subtle w-full sm:w-auto justify-center"
             >
               <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
               Add Lead
@@ -623,12 +722,55 @@ export const LeadsPage: React.FC = () => {
         }
       />
 
-      {/* 2. Lead Status Tabs */}
+      {/* 2. Interactive Lead Metric Summary Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <MetricCard
+          label="Total Ingested"
+          value={leads.length}
+          subtext="All prospective inquiries"
+          icon={Users}
+          iconVariant="neutral"
+          onClick={() => handleStatusFilterChange('ALL')}
+          className={statusFilter === 'ALL' ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''}
+        />
+        <MetricCard
+          label="Hot Leads"
+          value={leads.filter((l) => l.status === 'HOT').length}
+          subtext="Urgent buying interest"
+          subtextVariant="danger"
+          icon={Flame}
+          iconVariant="danger"
+          onClick={() => handleStatusFilterChange('HOT')}
+          className={statusFilter === 'HOT' ? 'border-[#DC2626] ring-1 ring-[#DC2626]/30' : ''}
+        />
+        <MetricCard
+          label="Warm Leads"
+          value={leads.filter((l) => l.status === 'WARM').length}
+          subtext="Follow-up in progress"
+          subtextVariant="warning"
+          icon={SunMedium}
+          iconVariant="warning"
+          onClick={() => handleStatusFilterChange('WARM')}
+          className={statusFilter === 'WARM' ? 'border-[#D97706] ring-1 ring-[#D97706]/30' : ''}
+        />
+        <MetricCard
+          label="Won / Converted"
+          value={leads.filter((l) => l.status === 'CONVERTED').length}
+          subtext="Deals won & customers"
+          subtextVariant="success"
+          icon={Trophy}
+          iconVariant="success"
+          onClick={() => handleStatusFilterChange('CONVERTED')}
+          className={statusFilter === 'CONVERTED' ? 'border-[#16A34A] ring-1 ring-[#16A34A]/30' : ''}
+        />
+      </div>
+
+      {/* 3. Lead Status Tabs */}
       <div className="flex items-center justify-between gap-3 overflow-x-auto pb-1">
         <FilterPills
           options={statusOptions}
           activeId={statusFilter}
-          onChange={(id) => setStatusFilter(id)}
+          onChange={handleStatusFilterChange}
         />
       </div>
 
@@ -637,11 +779,26 @@ export const LeadsPage: React.FC = () => {
         <SearchInput
           value={searchQuery}
           onChange={(val) => setSearchQuery(val)}
-          placeholder="Search by name, company, phone, email, service..."
+          placeholder="Search by name, company, phone, email, category..."
           className="w-full sm:w-80"
         />
 
         <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end">
+          {/* Category Dropdown */}
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer max-w-[160px] truncate"
+            aria-label="Filter by category"
+          >
+            <option value="ALL">All Categories</option>
+            {uniqueCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
           {/* Source Dropdown */}
           <select
             value={sourceFilter}
@@ -713,7 +870,7 @@ export const LeadsPage: React.FC = () => {
                   <TableHead className="w-[180px]">Contact Info</TableHead>
                   <TableHead className="w-[110px]">Source</TableHead>
                   <TableHead className="w-[130px]">Status & Score</TableHead>
-                  <TableHead className="w-[180px]">Service Line</TableHead>
+                  <TableHead className="w-[180px]">Category / Service</TableHead>
                   <TableHead className="w-[140px]">Owner</TableHead>
                   <TableHead className="min-w-[210px]">Next Action</TableHead>
                   <TableHead className="w-[80px] text-right">Actions</TableHead>
@@ -899,7 +1056,7 @@ export const LeadsPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Company Name</label>
                 <input
@@ -925,20 +1082,57 @@ export const LeadsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">
-                  Phone Number <span className="text-red-500">*</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-caption text-txt-secondary block font-medium">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-txt-muted tabular-nums">
+                    {newLeadForm.phone.length}/10 digits
+                  </span>
+                </div>
                 <input
                   type="tel"
                   required
                   value={newLeadForm.phone}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, phone: e.target.value })}
-                  placeholder="+91 98765 43210"
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setNewLeadForm({ ...newLeadForm, phone: cleaned });
+                  }}
+                  maxLength={10}
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  title="Phone number must be exactly 10 digits"
+                  placeholder="e.g. 9876543210 (10 digits)"
                   disabled={isSubmitting}
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`w-full h-8 rounded-input border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 ${
+                    createDuplicateLead
+                      ? 'border-red-500 focus:ring-red-500'
+                      : newLeadForm.phone.length === 10
+                      ? 'border-emerald-500 focus:ring-emerald-500'
+                      : 'border-border focus:ring-primary'
+                  }`}
                 />
+                <div className="text-[11px] pt-0.5">
+                  {createDuplicateLead ? (
+                    <span className="text-red-500 font-medium flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3 inline shrink-0" />
+                      Already used by {createDuplicateLead.fullName}
+                    </span>
+                  ) : newLeadForm.phone.length > 0 && newLeadForm.phone.length < 10 ? (
+                    <span className="text-amber-600 font-medium">
+                      Only 10 digits allowed ({newLeadForm.phone.length}/10 entered)
+                    </span>
+                  ) : newLeadForm.phone.length === 10 ? (
+                    <span className="text-emerald-600 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3 inline shrink-0" />
+                      Valid 10-digit number
+                    </span>
+                  ) : (
+                    <span className="text-txt-muted">Only 10 digits allowed (no symbols)</span>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -956,7 +1150,7 @@ export const LeadsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Lead Source</label>
                 <select
@@ -995,18 +1189,19 @@ export const LeadsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-caption text-txt-secondary block font-medium">Service Interest</label>
-              <input
-                type="text"
+              <label className="text-caption text-txt-secondary block font-medium">
+                Category / Service Interest <span className="text-red-500">*</span>
+              </label>
+              <CategorySelect
                 value={newLeadForm.serviceInterest}
-                onChange={(e) => setNewLeadForm({ ...newLeadForm, serviceInterest: e.target.value })}
-                placeholder="e.g. Custom Web Application Development"
+                onChange={(val) => setNewLeadForm({ ...newLeadForm, serviceInterest: val })}
+                extraCategories={uniqueCategories}
                 disabled={isSubmitting}
-                className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                required
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Customer Priority</label>
                 <select
@@ -1051,7 +1246,7 @@ export const LeadsPage: React.FC = () => {
                 Next Follow-Up / Action (Optional)
               </span>
 
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
                 <div className="space-y-1">
                   <label className="text-[11px] text-txt-muted block">Follow-Up Date</label>
                   <input
@@ -1078,7 +1273,7 @@ export const LeadsPage: React.FC = () => {
                   />
                 </div>
 
-                <div className="space-y-1 col-span-2 sm:col-span-1">
+                <div className="space-y-1">
                   <label className="text-[11px] text-txt-muted block">Action Type</label>
                   <select
                     value={newLeadForm.nextActionType}
@@ -1116,14 +1311,14 @@ export const LeadsPage: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2 sm:gap-0">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => setIsAddModalOpen(false)}
                 disabled={isSubmitting}
-                className="h-8 text-xs cursor-pointer"
+                className="h-8 text-xs cursor-pointer w-full sm:w-auto"
               >
                 Cancel
               </Button>
@@ -1131,7 +1326,7 @@ export const LeadsPage: React.FC = () => {
                 type="submit"
                 size="sm"
                 disabled={isSubmitting}
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer w-full sm:w-auto"
               >
                 {isSubmitting ? (
                   <>
@@ -1179,7 +1374,7 @@ export const LeadsPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
                 <div className="space-y-1">
                   <label className="text-caption text-txt-secondary block font-medium">Company Name</label>
                   <input
@@ -1203,19 +1398,57 @@ export const LeadsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
                 <div className="space-y-1">
-                  <label className="text-caption text-txt-secondary block font-medium">
-                    Phone Number <span className="text-red-500">*</span>
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-caption text-txt-secondary block font-medium">
+                      Phone Number <span className="text-red-500">*</span>
+                    </label>
+                    <span className="text-[10px] text-txt-muted tabular-nums">
+                      {editForm.phone.length}/10 digits
+                    </span>
+                  </div>
                   <input
                     type="tel"
                     required
                     value={editForm.phone}
-                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    onChange={(e) => {
+                      const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setEditForm({ ...editForm, phone: cleaned });
+                    }}
+                    maxLength={10}
+                    inputMode="numeric"
+                    pattern="[0-9]{10}"
+                    title="Phone number must be exactly 10 digits"
+                    placeholder="e.g. 9876543210 (10 digits)"
                     disabled={isEditSubmitting}
-                    className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    className={`w-full h-8 rounded-input border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 ${
+                      editDuplicateLead
+                        ? 'border-red-500 focus:ring-red-500'
+                        : editForm.phone.length === 10
+                        ? 'border-emerald-500 focus:ring-emerald-500'
+                        : 'border-border focus:ring-primary'
+                    }`}
                   />
+                  <div className="text-[11px] pt-0.5">
+                    {editDuplicateLead ? (
+                      <span className="text-red-500 font-medium flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3 inline shrink-0" />
+                        Already used by {editDuplicateLead.fullName}
+                      </span>
+                    ) : editForm.phone.length > 0 && editForm.phone.length < 10 ? (
+                      <span className="text-amber-600 font-medium">
+                        Only 10 digits allowed ({editForm.phone.length}/10 entered)
+                      </span>
+                    ) : editForm.phone.length === 10 ? (
+                      <span className="text-emerald-600 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3 inline shrink-0" />
+                        Valid 10-digit number
+                      </span>
+                    ) : (
+                      <span className="text-txt-muted">Only 10 digits allowed (no symbols)</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="space-y-1">
@@ -1231,17 +1464,19 @@ export const LeadsPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">Service Interest</label>
-                <input
-                  type="text"
+                <label className="text-caption text-txt-secondary block font-medium">
+                  Category / Service Interest <span className="text-red-500">*</span>
+                </label>
+                <CategorySelect
                   value={editForm.serviceInterest}
-                  onChange={(e) => setEditForm({ ...editForm, serviceInterest: e.target.value })}
+                  onChange={(val) => setEditForm({ ...editForm, serviceInterest: val })}
+                  extraCategories={uniqueCategories}
                   disabled={isEditSubmitting}
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
                 <div className="space-y-1">
                   <label className="text-caption text-txt-secondary block font-medium">Priority</label>
                   <select
@@ -1275,14 +1510,14 @@ export const LeadsPage: React.FC = () => {
                 </div>
               </div>
 
-              <DialogFooter className="pt-2">
+              <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2 sm:gap-0">
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
                   onClick={() => setEditingLead(null)}
                   disabled={isEditSubmitting}
-                  className="h-8 text-xs cursor-pointer"
+                  className="h-8 text-xs cursor-pointer w-full sm:w-auto"
                 >
                   Cancel
                 </Button>
@@ -1290,7 +1525,7 @@ export const LeadsPage: React.FC = () => {
                   type="submit"
                   size="sm"
                   disabled={isEditSubmitting}
-                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer w-full sm:w-auto"
                 >
                   {isEditSubmitting ? 'Saving...' : 'Save Changes'}
                 </Button>

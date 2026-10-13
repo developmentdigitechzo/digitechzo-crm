@@ -147,7 +147,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken: rawRefreshToken,
-      expiresIn: 900, // 15 minutes
+      expiresIn: 30 * 24 * 60 * 60, // 30 days (2,592,000 seconds)
       user: {
         id: user.id,
         name: user.name,
@@ -283,7 +283,7 @@ export class AuthService {
     return {
       accessToken: newAccessToken,
       refreshToken: newRawRefreshToken,
-      expiresIn: 900,
+      expiresIn: 30 * 24 * 60 * 60, // 30 days
     };
   }
 
@@ -356,4 +356,72 @@ export class AuthService {
       },
     };
   }
+
+  private readonly passwordResetCodes = new Map<string, { code: string; expiresAt: number }>();
+
+  async forgotPassword(email: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    this.passwordResetCodes.set(normalizedEmail, {
+      code,
+      expiresAt: Date.now() + 15 * 60 * 1000,
+    });
+
+    this.logger.log(`Password reset code generated for ${normalizedEmail}: ${code}`);
+
+    return {
+      success: true,
+      code,
+      message: `Verification code sent to ${normalizedEmail}`,
+    };
+  }
+
+  async resetPassword(email: string, code: string, newPassword: string) {
+    const normalizedEmail = email.toLowerCase().trim();
+    const record = this.passwordResetCodes.get(normalizedEmail);
+
+    if (!record || record.code !== code.trim()) {
+      throw new UnauthorizedException('Invalid verification code');
+    }
+
+    if (Date.now() > record.expiresAt) {
+      this.passwordResetCodes.delete(normalizedEmail);
+      throw new UnauthorizedException('Verification code has expired');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User account not found');
+    }
+
+    const newHash = await argon2.hash(newPassword);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: newHash },
+    });
+
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: user.id, isRevoked: false },
+      data: { isRevoked: true },
+    });
+
+    this.passwordResetCodes.delete(normalizedEmail);
+
+    await this.auditService.record({
+      organizationId: user.organizationId,
+      userId: user.id,
+      action: 'PASSWORD_RESET',
+      resource: 'auth',
+      details: { email: normalizedEmail },
+    });
+
+    return {
+      success: true,
+      message: 'Password reset successfully. You can now log in with your new password.',
+    };
+  }
 }
+

@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { crmApi } from '@/lib/api';
 import { TaskItem, TaskActionType, TaskPriority, TaskStatus } from '@/types/crm';
-import { formatDate, cn } from '@/lib/utils';
+import { formatDate, cn, getLocalDateString, isTimeOver, parseTimeToDate, formatDisplayTime, getCurrentFormattedTime } from '@/lib/utils';
 import {
   PlusCircle,
   PhoneCall,
@@ -47,12 +47,33 @@ import {
 
 export const TasksPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
 
+  const urlFilter = searchParams.get('filter') || searchParams.get('status') || 'ALL';
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<string>('ALL');
+  const [filterType, setFilterType] = useState<string>(urlFilter);
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
   const [ownerFilter, setOwnerFilter] = useState<string>('ALL');
   const [viewMode, setViewMode] = useState<'queue' | 'table'>('queue');
+
+  // Sync when searchParams changes (e.g. from Dashboard navigation)
+  useEffect(() => {
+    const param = searchParams.get('filter') || searchParams.get('status');
+    if (param) {
+      setFilterType(param.toUpperCase());
+    }
+  }, [searchParams]);
+
+  const handleFilterChange = (newFilter: string) => {
+    setFilterType(newFilter);
+    if (newFilter === 'ALL') {
+      searchParams.delete('filter');
+      searchParams.delete('status');
+      setSearchParams(searchParams);
+    } else {
+      setSearchParams({ filter: newFilter });
+    }
+  };
 
   // Modals state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -64,17 +85,37 @@ export const TasksPage: React.FC = () => {
     notes: '',
   });
 
-  // Form state for scheduling task
+  // Form state for scheduling task (starts with empty time so user selects allocated time)
   const [newTaskForm, setNewTaskForm] = useState({
     title: '',
     leadId: '',
     actionType: 'CALL' as TaskActionType,
-    dueDate: new Date().toISOString().split('T')[0],
-    dueTime: '11:00 AM',
+    dueDate: getLocalDateString(),
+    dueTime: '',
     priority: 'HIGH' as TaskPriority,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Helper to open Schedule Task modal with today's date and empty time
+  const handleOpenScheduleModal = () => {
+    setNewTaskForm({
+      title: '',
+      leadId: '',
+      actionType: 'CALL',
+      dueDate: getLocalDateString(),
+      dueTime: '',
+      priority: 'HIGH',
+    });
+    setFormError(null);
+    setIsScheduleModalOpen(true);
+  };
+
+  // Helper to handle date change
+  const handleDueDateChange = (newDate: string) => {
+    setNewTaskForm((prev) => ({ ...prev, dueDate: newDate }));
+    if (formError) setFormError(null);
+  };
 
   // Queries
   const {
@@ -366,6 +407,19 @@ export const TasksPage: React.FC = () => {
     e.preventDefault();
     if (!newTaskForm.title.trim()) return;
 
+    if (!newTaskForm.dueTime) {
+      setFormError('Please choose or enter an allocated due time.');
+      return;
+    }
+
+    // Disallow scheduling in the past
+    if (isTimeOver(newTaskForm.dueDate, newTaskForm.dueTime)) {
+      setFormError(
+        `Time Over: ${formatDisplayTime(newTaskForm.dueTime)} has already passed today. Please select a time after ${getCurrentFormattedTime()}.`
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setFormError(null);
     try {
@@ -381,22 +435,7 @@ export const TasksPage: React.FC = () => {
         OTHER: 'OTHER',
       };
 
-      let scheduledDate = new Date(`${newTaskForm.dueDate}T10:00:00.000Z`);
-      if (newTaskForm.dueTime) {
-        const match = newTaskForm.dueTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
-        if (match) {
-          let hours = parseInt(match[1], 10);
-          const minutes = parseInt(match[2], 10);
-          const ampm = match[3]?.toUpperCase();
-          if (ampm === 'PM' && hours < 12) hours += 12;
-          if (ampm === 'AM' && hours === 12) hours = 0;
-          const d = new Date(newTaskForm.dueDate);
-          d.setHours(hours, minutes, 0, 0);
-          if (!isNaN(d.getTime())) {
-            scheduledDate = d;
-          }
-        }
-      }
+      const scheduledDate = parseTimeToDate(newTaskForm.dueDate, newTaskForm.dueTime);
 
       await crmApi.createTask({
         title: newTaskForm.title.trim(),
@@ -415,8 +454,8 @@ export const TasksPage: React.FC = () => {
         title: '',
         leadId: '',
         actionType: 'CALL',
-        dueDate: new Date().toISOString().split('T')[0],
-        dueTime: '11:00 AM',
+        dueDate: getLocalDateString(),
+        dueTime: '',
         priority: 'HIGH',
       });
       setIsScheduleModalOpen(false);
@@ -537,7 +576,7 @@ export const TasksPage: React.FC = () => {
             <Button
               size="sm"
               className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer shrink-0"
-              onClick={() => setIsScheduleModalOpen(true)}
+              onClick={handleOpenScheduleModal}
             >
               <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
               Schedule Task
@@ -581,7 +620,7 @@ export const TasksPage: React.FC = () => {
           subtext="In current queue"
           icon={CalendarClock}
           iconVariant="neutral"
-          onClick={() => setFilterType('ALL')}
+          onClick={() => handleFilterChange('ALL')}
           className={filterType === 'ALL' && !isFiltered ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''}
         />
         <MetricCard
@@ -591,7 +630,7 @@ export const TasksPage: React.FC = () => {
           subtextVariant="danger"
           icon={Clock}
           iconVariant="danger"
-          onClick={() => setFilterType('OVERDUE')}
+          onClick={() => handleFilterChange('OVERDUE')}
           className={filterType === 'OVERDUE' ? 'border-[#DC2626] ring-1 ring-[#DC2626]/30' : ''}
         />
         <MetricCard
@@ -601,7 +640,7 @@ export const TasksPage: React.FC = () => {
           subtextVariant="warning"
           icon={CheckCircle2}
           iconVariant="warning"
-          onClick={() => setFilterType('PENDING')}
+          onClick={() => handleFilterChange('PENDING')}
           className={filterType === 'PENDING' ? 'border-[#D97706] ring-1 ring-[#D97706]/30' : ''}
         />
         <MetricCard
@@ -611,7 +650,7 @@ export const TasksPage: React.FC = () => {
           subtextVariant="success"
           icon={Check}
           iconVariant="success"
-          onClick={() => setFilterType('COMPLETED')}
+          onClick={() => handleFilterChange('COMPLETED')}
           className={filterType === 'COMPLETED' ? 'border-[#16A34A] ring-1 ring-[#16A34A]/30' : ''}
         />
       </div>
@@ -670,7 +709,7 @@ export const TasksPage: React.FC = () => {
         </div>
 
         {/* Bottom toolbar: Category Filter Pills */}
-        <FilterPills options={filterOptions} activeId={filterType} onChange={setFilterType} />
+        <FilterPills options={filterOptions} activeId={filterType} onChange={handleFilterChange} />
       </div>
 
       {/* 5. Main Task Action Queue or Table View */}
@@ -703,7 +742,7 @@ export const TasksPage: React.FC = () => {
                   title="No tasks found in this view"
                   description="All clear for the current selection. Try resetting your filter or schedule a new task."
                   actionLabel={isFiltered ? 'Reset filters' : 'Schedule Task'}
-                  onAction={isFiltered ? resetAllFilters : () => setIsScheduleModalOpen(true)}
+                  onAction={isFiltered ? resetAllFilters : handleOpenScheduleModal}
                 />
               </div>
             ) : (
@@ -1093,22 +1132,105 @@ export const TasksPage: React.FC = () => {
                 <input
                   type="date"
                   required
+                  min={getLocalDateString()}
                   value={newTaskForm.dueDate}
-                  onChange={(e) => setNewTaskForm({ ...newTaskForm, dueDate: e.target.value })}
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                  onChange={(e) => handleDueDateChange(e.target.value)}
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle cursor-pointer"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Due Time</label>
+                <label className="text-xs font-semibold text-txt-primary flex items-center justify-between">
+                  <span>Due Time</span>
+                  <span className="text-[10px] text-txt-muted font-normal">Choose allocated time</span>
+                </label>
                 <input
-                  type="text"
-                  placeholder="e.g. 11:30 AM"
+                  type="time"
+                  required
                   value={newTaskForm.dueTime}
-                  onChange={(e) => setNewTaskForm({ ...newTaskForm, dueTime: e.target.value })}
-                  className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                  onChange={(e) => {
+                    setNewTaskForm({ ...newTaskForm, dueTime: e.target.value });
+                    if (formError) setFormError(null);
+                  }}
+                  className={cn(
+                    'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
+                    newTaskForm.dueTime && isTimeOver(newTaskForm.dueDate, newTaskForm.dueTime)
+                      ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
+                      : 'border-border focus:ring-primary focus:border-primary'
+                  )}
                 />
               </div>
+            </div>
+
+            {/* Red Overtime Warning Text Message Underneath */}
+            {newTaskForm.dueTime && isTimeOver(newTaskForm.dueDate, newTaskForm.dueTime) && (
+              <div className="p-2 rounded-btn bg-red-50 border border-red-200 text-red-700 text-[11px] leading-tight flex items-start gap-1.5 animate-in fade-in">
+                <AlertCircle className="h-3.5 w-3.5 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-red-800">
+                    Time Over: {formatDisplayTime(newTaskForm.dueTime)} has already passed today!
+                  </span>
+                  <p className="text-[10px] text-red-600 mt-0.5 font-medium">
+                    Please select a valid future time after {getCurrentFormattedTime()}.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Time Presets */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] font-semibold text-txt-muted">Quick suggestions:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const d = new Date(Date.now() + 30 * 60 * 1000);
+                  const hh = String(d.getHours()).padStart(2, '0');
+                  const mm = String(d.getMinutes()).padStart(2, '0');
+                  setNewTaskForm((p) => ({ ...p, dueDate: getLocalDateString(d), dueTime: `${hh}:${mm}` }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                +30 mins
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const d = new Date(Date.now() + 60 * 60 * 1000);
+                  const hh = String(d.getHours()).padStart(2, '0');
+                  const mm = String(d.getMinutes()).padStart(2, '0');
+                  setNewTaskForm((p) => ({ ...p, dueDate: getLocalDateString(d), dueTime: `${hh}:${mm}` }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                +1 hour
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const d = new Date(Date.now() + 120 * 60 * 1000);
+                  const hh = String(d.getHours()).padStart(2, '0');
+                  const mm = String(d.getMinutes()).padStart(2, '0');
+                  setNewTaskForm((p) => ({ ...p, dueDate: getLocalDateString(d), dueTime: `${hh}:${mm}` }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                +2 hours
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  setNewTaskForm((p) => ({ ...p, dueDate: getLocalDateString(tomorrow), dueTime: '10:00' }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                Tomorrow 10:00 AM
+              </button>
             </div>
 
             <DialogFooter className="pt-2">

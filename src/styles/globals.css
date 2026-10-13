@@ -48,6 +48,13 @@
 @layer base {
   * {
     border-color: #E2E8F0;
+    box-sizing: border-box;
+  }
+  html, body {
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
+    -webkit-text-size-adjust: 100%;
   }
   body {
     background-color: #F8FAFC;
@@ -56,6 +63,10 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  button, input, select, textarea {
+    touch-action: manipulation;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -85,4 +96,25 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94A3B8;
+}
+
+/* Print Stylesheet for In-Voice Document */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  aside, header, nav, .no-print, [role="navigation"] {
+    display: none !important;
+  }
+  #invoiceDocument {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 auto !important;
+    padding: 24px !important;
+    width: 100% !important;
+    max-width: 800px !important;
+  }
 }

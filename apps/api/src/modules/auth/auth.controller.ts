@@ -18,6 +18,7 @@ import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { LogoutDto, RefreshTokenDto } from './dto/refresh-token.dto';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/forgot-password.dto';
 import {
   AuthResponseDto,
   AuthUserDto,
@@ -84,6 +85,35 @@ export class AuthController {
     const requestId = req.requestId || (req.headers['x-request-id'] as string);
 
     return this.authService.refresh(refreshDto, ip, userAgent, requestId);
+  }
+
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request password reset verification code',
+    description: 'Generates a 6-digit verification code and dispatches it to the registered user email address.',
+  })
+  @ApiResponse({ status: 200, description: 'Verification code sent successfully' })
+  async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+    return this.authService.forgotPassword(forgotPasswordDto.email);
+  }
+
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Reset password with verification code',
+    description: 'Verifies the 6-digit code and sets a new Argon2id hashed password.',
+  })
+  @ApiResponse({ status: 200, description: 'Password reset successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired verification code' })
+  async resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+    return this.authService.resetPassword(
+      resetPasswordDto.email,
+      resetPasswordDto.code,
+      resetPasswordDto.newPassword,
+    );
   }
 
   @Post('logout')

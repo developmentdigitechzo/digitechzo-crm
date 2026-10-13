@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleSidebar }) => {
     : 'DZ';
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-border bg-white px-4 sm:px-6 select-none">
+    <header className="sticky top-0 z-30 flex h-14 w-full items-center justify-between border-b border-border bg-white px-3 sm:px-6 select-none">
       {/* Left: Mobile Toggle & Search */}
       <div className="flex items-center gap-3 flex-1 max-w-md">
         <Button

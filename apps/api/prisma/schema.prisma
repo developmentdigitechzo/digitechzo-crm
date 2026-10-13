@@ -24,6 +24,8 @@ model Organization {
   meetings   Meeting[]
   proposals  Proposal[]
   customers  Customer[]
+  invoices   Invoice[]
+  companyProfile CompanyProfile?
 
   @@map("organizations")
 }
@@ -56,6 +58,7 @@ model User {
   ownedProposals   Proposal[]          @relation("ProposalOwner")
   createdProposals Proposal[]          @relation("ProposalCreator")
   ownedCustomers   Customer[]          @relation("CustomerOwner")
+  createdInvoices  Invoice[]           @relation("InvoiceCreator")
 
   @@index([organizationId])
   @@index([roleId])
@@ -218,6 +221,7 @@ model Lead {
   meetings          Meeting[]
   proposals         Proposal[]
   customers         Customer[]         @relation("LeadCustomer")
+  invoices          Invoice[]
 
   @@index([organizationId])
   @@index([ownerId])
@@ -484,6 +488,7 @@ model Customer {
   lead           Lead         @relation("LeadCustomer", fields: [leadId], references: [id], onDelete: Cascade)
   deal           Deal?        @relation("DealCustomer", fields: [dealId], references: [id], onDelete: SetNull)
   owner          User         @relation("CustomerOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  invoices       Invoice[]
 
   @@index([organizationId])
   @@index([ownerId])
@@ -496,3 +501,119 @@ model Customer {
   @@index([createdAt])
   @@map("customers")
 }
+
+model Invoice {
+  id               String        @id @default(uuid())
+  organizationId   String        @map("organization_id")
+  invoiceNumber    String        @map("invoice_number")
+  poNumber         String?       @map("po_number")
+  
+  // Client Details
+  clientName       String        @map("client_name")
+  clientContact    String?       @map("client_contact")
+  clientEmail      String?       @map("client_email")
+  clientPhone      String?       @map("client_phone")
+  clientAddress    String?       @map("client_address")
+  clientTaxId      String?       @map("client_tax_id")
+
+  // Optional CRM Links
+  leadId           String?       @map("lead_id")
+  customerId       String?       @map("customer_id")
+  creatorId        String?       @map("creator_id")
+
+  // Dates & Status
+  issueDate        DateTime      @default(now()) @map("issue_date")
+  dueDate          DateTime      @map("due_date")
+  paymentTermsDays String?       @default("15") @map("payment_terms_days")
+  status           String        @default("DRAFT") // DRAFT, SENT, PAID, PARTIALLY_PAID, OVERDUE, CANCELLED
+  currency         String        @default("₹")
+
+  // Financials
+  subtotal         Decimal       @default(0) @db.Decimal(12, 2)
+  taxRate          Decimal       @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  taxAmount        Decimal       @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  discountRate     Decimal       @default(0) @map("discount_rate") @db.Decimal(5, 2)
+  discountAmount   Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  total            Decimal       @default(0) @db.Decimal(12, 2)
+  advanceAmount    Decimal       @default(0) @map("advance_amount") @db.Decimal(12, 2)
+  amountPaid       Decimal       @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  balanceDue       Decimal       @default(0) @map("balance_due") @db.Decimal(12, 2)
+
+  // Content & Config
+  notes            String?       @db.Text
+  footerText       String?       @map("footer_text") @db.Text
+  
+  // Structured JSON fields for advanced studio capabilities
+  senderProfile    Json?         @map("sender_profile")
+  bankDetails      Json?         @map("bank_details")
+  upiDetails       Json?         @map("upi_details")
+  cryptoDetails    Json?         @map("crypto_details")
+  signature        Json?         @map("signature")
+  customColumns    Json?         @map("custom_columns")
+  columnConfig     Json?         @map("column_config")
+  activeTheme      Json?         @map("active_theme")
+  rawData          Json?         @map("raw_data")
+
+  // Soft Deletion & Timestamps
+  deletedAt        DateTime?     @map("deleted_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  organization     Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead             Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  customer         Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  creator          User?         @relation("InvoiceCreator", fields: [creatorId], references: [id], onDelete: SetNull)
+  items            InvoiceItem[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId])
+  @@index([creatorId])
+  @@index([leadId])
+  @@index([customerId])
+  @@index([status])
+  @@index([issueDate])
+  @@index([dueDate])
+  @@index([createdAt])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id            String   @id @default(uuid())
+  invoiceId     String   @map("invoice_id")
+  description   String
+  subdesc       String?
+  quantity      Int      @default(1)
+  price         Decimal  @default(0) @db.Decimal(12, 2)
+  advanceAmount Decimal? @map("advance_amount") @db.Decimal(12, 2)
+  customValues  Json?    @map("custom_values")
+  order         Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  invoice       Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model CompanyProfile {
+  id             String       @id @default(uuid())
+  organizationId String       @unique @map("organization_id")
+  name           String
+  email          String?
+  phone          String?
+  address        String?      @db.Text
+  taxId          String?      @map("tax_id")
+  website        String?
+  logo           String?      @db.Text
+  logoHeight     Int?         @default(48) @map("logo_height")
+  bankAccounts   Json?        @map("bank_accounts")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("company_profiles")
+}
+

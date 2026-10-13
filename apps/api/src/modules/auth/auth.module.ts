@@ -19,7 +19,7 @@ import { AuditModule } from '../audit/audit.module';
           configService.get<string>('auth.jwtSecret') ||
           'digitechzo_jwt_access_secret_super_secure_key_b1_2026',
         signOptions: {
-          expiresIn: configService.get<string>('auth.jwtExpiration') || '15m',
+          expiresIn: configService.get<string>('auth.jwtExpiration') || '30d',
         },
       }),
     }),

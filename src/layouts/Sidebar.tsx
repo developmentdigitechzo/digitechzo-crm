@@ -14,6 +14,8 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  X,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -40,6 +42,7 @@ const mainNavItems: NavItem[] = [
   { title: 'Activities', href: '/activities', icon: Activity },
   { title: 'Meetings', href: '/meetings', icon: Calendar },
   { title: 'Proposals', href: '/proposals', icon: FileText },
+  { title: 'In-Voice', href: '/invoices', icon: Receipt },
   { title: 'Customers', href: '/customers', icon: Briefcase },
   { title: 'Reports', href: '/reports', icon: BarChart3 },
 ];
@@ -149,6 +152,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               aria-label="Collapse sidebar"
             >
               <ChevronLeft className="h-4 w-4" />
+            </button>
+
+            {/* Mobile Close Button */}
+            <button
+              onClick={onClose}
+              style={{ color: appliedTheme.textColor }}
+              className={cn(
+                'lg:hidden flex h-7 w-7 items-center justify-center rounded-lg transition-colors cursor-pointer',
+                isAppliedBgDark ? 'hover:bg-white/10' : 'hover:bg-black/10'
+              )}
+              title="Close sidebar"
+              aria-label="Close sidebar"
+            >
+              <X className="h-4 w-4" />
             </button>
           </div>
         )}

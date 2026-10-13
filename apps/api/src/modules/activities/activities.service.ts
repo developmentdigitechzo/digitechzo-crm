@@ -80,7 +80,7 @@ export class ActivitiesService {
     user: AuthenticatedUser,
   ): Promise<PaginatedActivitiesResponseDto> {
     const page = Math.max(1, query.page || 1);
-    const limit = Math.min(100, Math.max(1, query.limit || 20));
+    const limit = Math.min(500, Math.max(1, query.limit || 20));
     const skip = (page - 1) * limit;
 
     const where: Prisma.ActivityWhereInput = {
@@ -294,48 +294,51 @@ export class ActivitiesService {
       });
     }
 
-    // Auto-advance Stage 1 Deal to Stage 2 (Discovery) on meaningful touchpoint (CALL, WHATSAPP, MEETING, EMAIL, TASK)
+    // Auto-advance Stage 1 Deal to Stage 2 (Discovery) on meaningful touchpoint (CALL, WHATSAPP, MEETING, EMAIL)
     try {
-      const targetLeadId = dto.leadId;
-      const targetDealId = dto.dealId;
-      if (targetLeadId || targetDealId) {
-        const whereClause: any = {
-          organizationId: user.organizationId,
-          deletedAt: null,
-          status: 'OPEN',
-        };
-        if (targetDealId) {
-          whereClause.id = targetDealId;
-        } else if (targetLeadId) {
-          whereClause.leadId = targetLeadId;
-        }
+      const touchpointTypes = ['CALL', 'WHATSAPP', 'MEETING', 'EMAIL'];
+      if (touchpointTypes.includes(created.activityType)) {
+        const targetLeadId = dto.leadId;
+        const targetDealId = dto.dealId;
+        if (targetLeadId || targetDealId) {
+          const whereClause: any = {
+            organizationId: user.organizationId,
+            deletedAt: null,
+            status: 'OPEN',
+          };
+          if (targetDealId) {
+            whereClause.id = targetDealId;
+          } else if (targetLeadId) {
+            whereClause.leadId = targetLeadId;
+          }
 
-        const activeDeal: any = await this.prisma.deal.findFirst({
-          where: whereClause,
-          include: { stage: true },
-        });
-
-        if (activeDeal && activeDeal.stage?.order === 1) {
-          const stage2 = await this.prisma.pipelineStage.findFirst({
-            where: { order: 2 },
+          const activeDeal: any = await this.prisma.deal.findFirst({
+            where: whereClause,
+            include: { stage: true },
           });
-          if (stage2) {
-            await this.prisma.deal.update({
-              where: { id: activeDeal.id },
-              data: { stageId: stage2.id },
+
+          if (activeDeal && activeDeal.stage?.order === 1) {
+            const stage2 = await this.prisma.pipelineStage.findFirst({
+              where: { order: 2 },
             });
-            await this.auditService.record({
-              organizationId: user.organizationId,
-              userId: user.userId,
-              action: 'DEAL_STAGE_CHANGED',
-              resource: 'deals',
-              resourceId: activeDeal.id,
-              details: {
-                previousStageId: activeDeal.stageId,
-                newStageId: stage2.id,
-                reason: `Auto-advanced to Discovery on activity creation (${created.activityType})`,
-              },
-            });
+            if (stage2) {
+              await this.prisma.deal.update({
+                where: { id: activeDeal.id },
+                data: { stageId: stage2.id },
+              });
+              await this.auditService.record({
+                organizationId: user.organizationId,
+                userId: user.userId,
+                action: 'DEAL_STAGE_CHANGED',
+                resource: 'deals',
+                resourceId: activeDeal.id,
+                details: {
+                  previousStageId: activeDeal.stageId,
+                  newStageId: stage2.id,
+                  reason: `Auto-advanced to Discovery on customer touchpoint (${created.activityType})`,
+                },
+              });
+            }
           }
         }
       }

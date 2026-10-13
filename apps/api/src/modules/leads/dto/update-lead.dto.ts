@@ -41,13 +41,13 @@ export class UpdateLeadDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   title?: string;
 
-  @ApiPropertyOptional({ description: 'Contact phone number (E.164 or digits)', example: '+919876543210' })
+  @ApiPropertyOptional({ description: 'Contact phone number (strictly 10 digits)', example: '9876543210' })
   @IsOptional()
   @IsString()
-  @Matches(/^\+?[1-9]\d{7,14}$/, {
-    message: 'Phone number must be a valid E.164 format with 8 to 15 digits',
+  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/\D/g, '') : value))
+  @Matches(/^\d{10}$/, {
+    message: 'Phone number must be exactly 10 digits',
   })
-  @Transform(({ value }) => (typeof value === 'string' ? value.replace(/[\s\-\(\)]/g, '') : value))
   phone?: string;
 
   @ApiPropertyOptional({ description: 'Contact email address', example: 'vikram@apexlogistics.in' })

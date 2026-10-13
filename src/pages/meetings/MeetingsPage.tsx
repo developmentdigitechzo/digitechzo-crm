@@ -26,7 +26,14 @@ import {
   MeetingType,
   CreateMeetingPayload,
 } from '@/types/crm';
-import { formatDate, cn } from '@/lib/utils';
+import {
+  formatDate,
+  cn,
+  getLocalDateString,
+  isTimeOver,
+  formatDisplayTime,
+  getCurrentFormattedTime,
+} from '@/lib/utils';
 import {
   PlusCircle,
   Video,
@@ -58,17 +65,37 @@ export const MeetingsPage: React.FC = () => {
   const [outcomeModalMeeting, setOutcomeModalMeeting] = useState<MeetingItem | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<MeetingItem | null>(null);
 
-  // Form states
+  // Form states (starts with empty time so user selects allocated time)
   const [newMeetingForm, setNewMeetingForm] = useState({
     title: '',
     leadId: '',
     meetingType: 'DEMO' as MeetingType,
-    date: new Date().toISOString().split('T')[0],
-    time: '11:30 AM',
+    date: getLocalDateString(),
+    time: '',
     duration: '45 min',
     meetingUrl: '',
     notes: '',
   });
+
+  const handleOpenScheduleModal = () => {
+    setNewMeetingForm({
+      title: '',
+      leadId: '',
+      meetingType: 'DEMO',
+      date: getLocalDateString(),
+      time: '',
+      duration: '45 min',
+      notes: '',
+      meetingUrl: '',
+    });
+    setFormError(null);
+    setIsScheduleModalOpen(true);
+  };
+
+  const handleMeetingDateChange = (newDate: string) => {
+    setNewMeetingForm((prev) => ({ ...prev, date: newDate }));
+    if (formError) setFormError(null);
+  };
 
   const [outcomeForm, setOutcomeForm] = useState({
     status: 'COMPLETED' as MeetingStatus,
@@ -305,6 +332,18 @@ export const MeetingsPage: React.FC = () => {
     e.preventDefault();
     if (!newMeetingForm.title.trim()) return;
 
+    if (!newMeetingForm.time) {
+      setFormError('Please choose or enter a meeting start time.');
+      return;
+    }
+
+    if (isTimeOver(newMeetingForm.date, newMeetingForm.time)) {
+      setFormError(
+        `Time Over: ${formatDisplayTime(newMeetingForm.time)} has already passed today. Please select a time after ${getCurrentFormattedTime()}.`
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     setFormError(null);
 
@@ -341,8 +380,8 @@ export const MeetingsPage: React.FC = () => {
         title: '',
         leadId: '',
         meetingType: 'DEMO',
-        date: new Date().toISOString().split('T')[0],
-        time: '11:30 AM',
+        date: getLocalDateString(),
+        time: '',
         duration: '45 min',
         meetingUrl: '',
         notes: '',
@@ -499,10 +538,7 @@ export const MeetingsPage: React.FC = () => {
             <Button
               size="sm"
               className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer shrink-0"
-              onClick={() => {
-                setFormError(null);
-                setIsScheduleModalOpen(true);
-              }}
+              onClick={handleOpenScheduleModal}
             >
               <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
               Schedule Demo
@@ -623,7 +659,7 @@ export const MeetingsPage: React.FC = () => {
             title="No meeting records found"
             description="No scheduled demos match your active criteria. Try clearing filters or schedule a demo."
             actionLabel={isFiltered ? 'Reset filters' : 'Schedule Demo'}
-            onAction={isFiltered ? resetAllFilters : () => setIsScheduleModalOpen(true)}
+            onAction={isFiltered ? resetAllFilters : handleOpenScheduleModal}
           />
         </div>
       ) : viewMode === 'table' ? (
@@ -996,22 +1032,92 @@ export const MeetingsPage: React.FC = () => {
                 <input
                   type="date"
                   required
+                  min={getLocalDateString()}
                   value={newMeetingForm.date}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, date: e.target.value })}
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+                  onChange={(e) => handleMeetingDateChange(e.target.value)}
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle cursor-pointer"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Start Time</label>
+                <label className="text-xs font-semibold text-txt-primary flex items-center justify-between">
+                  <span>Start Time</span>
+                  <span className="text-[10px] text-txt-muted font-normal">Choose allocated time</span>
+                </label>
                 <input
-                  type="text"
-                  placeholder="e.g. 11:30 AM"
+                  type="time"
+                  required
                   value={newMeetingForm.time}
-                  onChange={(e) => setNewMeetingForm({ ...newMeetingForm, time: e.target.value })}
-                  className="w-full h-8 px-2.5 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+                  onChange={(e) => {
+                    setNewMeetingForm({ ...newMeetingForm, time: e.target.value });
+                    if (formError) setFormError(null);
+                  }}
+                  className={cn(
+                    'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
+                    newMeetingForm.time && isTimeOver(newMeetingForm.date, newMeetingForm.time)
+                      ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
+                      : 'border-border focus:ring-primary focus:border-primary'
+                  )}
                 />
               </div>
+            </div>
+
+            {/* Red Overtime Warning Text Message Underneath */}
+            {newMeetingForm.time && isTimeOver(newMeetingForm.date, newMeetingForm.time) && (
+              <div className="p-2 rounded-btn bg-red-50 border border-red-200 text-red-700 text-[11px] leading-tight flex items-start gap-1.5 animate-in fade-in">
+                <AlertCircle className="h-3.5 w-3.5 text-red-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-red-800">
+                    Time Over: {formatDisplayTime(newMeetingForm.time)} has already passed today!
+                  </span>
+                  <p className="text-[10px] text-red-600 mt-0.5 font-medium">
+                    Please select a valid future time after {getCurrentFormattedTime()}.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Time Presets */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] font-semibold text-txt-muted">Quick suggestions:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const d = new Date(Date.now() + 30 * 60 * 1000);
+                  const hh = String(d.getHours()).padStart(2, '0');
+                  const mm = String(d.getMinutes()).padStart(2, '0');
+                  setNewMeetingForm((p) => ({ ...p, date: getLocalDateString(d), time: `${hh}:${mm}` }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                +30 mins
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const d = new Date(Date.now() + 60 * 60 * 1000);
+                  const hh = String(d.getHours()).padStart(2, '0');
+                  const mm = String(d.getMinutes()).padStart(2, '0');
+                  setNewMeetingForm((p) => ({ ...p, date: getLocalDateString(d), time: `${hh}:${mm}` }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                +1 hour
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  setNewMeetingForm((p) => ({ ...p, date: getLocalDateString(tomorrow), time: '11:00' }));
+                  if (formError) setFormError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors cursor-pointer"
+              >
+                Tomorrow 11:00 AM
+              </button>
             </div>
 
             <div className="space-y-1">

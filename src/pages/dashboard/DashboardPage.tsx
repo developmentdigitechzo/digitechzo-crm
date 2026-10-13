@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
+  const navigate = useNavigate();
   const { user } = useAuth();
 
   // Dynamic Browser Date and Time State
@@ -140,7 +141,7 @@ export const DashboardPage: React.FC = () => {
         </div>
 
         {/* Dynamic Date & Current Time Widgets */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col min-[480px]:flex-row items-stretch min-[480px]:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
           {/* Today Date Widget */}
           <div className="flex items-center gap-3 px-3.5 py-2 rounded-btn bg-white border border-border shadow-xs">
             <div className="flex h-8 w-8 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0">
@@ -180,12 +181,16 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* 2. KPI Summary: 4 Action-Focused Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+      <div className="grid grid-cols-1 min-[380px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
         {/* Metric 1: Overdue */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between">
+        <Card
+          onClick={() => navigate('/tasks?filter=OVERDUE')}
+          title="Click to view Overdue Tasks"
+          className="cursor-pointer border-border hover:border-[#DC2626]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
+          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
+              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
                 Overdue
               </p>
               <div
@@ -204,7 +209,7 @@ export const DashboardPage: React.FC = () => {
               </p>
             </div>
             <div
-              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 ${
+              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 transition-transform group-hover:scale-105 ${
                 overdueTasks.length > 0
                   ? 'bg-[#FEF2F2] text-[#DC2626]'
                   : 'bg-slate-100 text-txt-muted'
@@ -216,10 +221,14 @@ export const DashboardPage: React.FC = () => {
         </Card>
 
         {/* Metric 2: Follow-ups Due */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between">
+        <Card
+          onClick={() => navigate('/tasks?filter=PENDING')}
+          title="Click to view Follow-ups & Pending Tasks"
+          className="cursor-pointer border-border hover:border-[#57B71B]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
+          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
+              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
                 Follow-ups Due
               </p>
               <div className="text-2xl font-bold tracking-tight text-txt-primary font-tabular">
@@ -229,17 +238,21 @@ export const DashboardPage: React.FC = () => {
                 {pendingTasks.length === 0 ? 'All caught up' : 'Pending tasks'}
               </p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0">
+            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0 transition-transform group-hover:scale-105">
               <PhoneCall className="h-5 w-5" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 3: Hot Leads */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between">
+        <Card
+          onClick={() => navigate('/leads?status=HOT')}
+          title="Click to view Hot Leads"
+          className="cursor-pointer border-border hover:border-[#D97706]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
+          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between">
             <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
+              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
                 Hot Leads
               </p>
               <div
@@ -254,7 +267,7 @@ export const DashboardPage: React.FC = () => {
               </p>
             </div>
             <div
-              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 ${
+              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 transition-transform group-hover:scale-105 ${
                 hotLeads.length > 0
                   ? 'bg-[#FFFBEB] text-[#D97706]'
                   : 'bg-slate-100 text-txt-muted'
@@ -266,10 +279,14 @@ export const DashboardPage: React.FC = () => {
         </Card>
 
         {/* Metric 4: Pipeline Value */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
-          <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-2">
+        <Card
+          onClick={() => navigate('/pipeline')}
+          title="Click to view Deals & Pipeline"
+          className="cursor-pointer border-border hover:border-[#16A34A]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
+          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between gap-2">
             <div className="space-y-1 min-w-0">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider">
+              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
                 Active Pipeline
               </p>
               <div className="text-base sm:text-xl xl:text-2xl font-bold tracking-tight text-txt-primary font-tabular whitespace-nowrap">
@@ -279,7 +296,7 @@ export const DashboardPage: React.FC = () => {
                 <TrendingUp className="h-3.5 w-3.5 shrink-0" /> {totalDealsCount} active deals
               </p>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-emerald-50 text-[#16A34A] shrink-0">
+            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-emerald-50 text-[#16A34A] shrink-0 transition-transform group-hover:scale-105">
               <Calendar className="h-5 w-5" />
             </div>
           </CardContent>
@@ -340,7 +357,9 @@ export const DashboardPage: React.FC = () => {
                     return (
                       <div
                         key={task.id}
-                        className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 sm:px-5 hover:bg-slate-50/80 transition-colors gap-2.5 sm:gap-0"
+                        onClick={() => navigate(`/tasks?filter=${isOverdue ? 'OVERDUE' : 'PENDING'}`)}
+                        title={`Click to view in Tasks (${isOverdue ? 'Overdue' : 'Pending'})`}
+                        className="cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between p-3.5 px-4 sm:px-5 hover:bg-slate-50/80 transition-colors gap-2.5 sm:gap-0"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <div
@@ -434,7 +453,9 @@ export const DashboardPage: React.FC = () => {
                   {leads.slice(0, 4).map((lead) => (
                     <div
                       key={lead.id}
-                      className="p-3.5 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/80 transition-colors gap-2 sm:gap-0"
+                      onClick={() => navigate(`/leads/${lead.id}`)}
+                      title={`Click to open ${lead.fullName}`}
+                      className="cursor-pointer p-3.5 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/80 transition-colors gap-2 sm:gap-0"
                     >
                       <div className="min-w-0 space-y-0.5">
                         <div className="flex items-center gap-2">
@@ -494,7 +515,9 @@ export const DashboardPage: React.FC = () => {
                 return (
                   <div
                     key={stage.name}
-                    className="p-2.5 rounded-btn border border-border/60 bg-white hover:bg-slate-50 transition-colors space-y-1.5"
+                    onClick={() => navigate('/pipeline')}
+                    title={`Click to view ${stage.name} deals in Pipeline`}
+                    className="cursor-pointer p-2.5 rounded-btn border border-border/60 bg-white hover:bg-slate-50 hover:border-[#57B71B]/60 transition-all space-y-1.5 active:scale-[0.99]"
                   >
                     <div className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2">

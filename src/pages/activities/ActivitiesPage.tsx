@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
@@ -46,12 +46,34 @@ type CallOutcome = 'CONNECTED' | 'NO_ANSWER' | 'BUSY' | 'CALLBACK_REQUESTED';
 
 export const ActivitiesPage: React.FC = () => {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
 
+  const urlType = searchParams.get('type') || searchParams.get('filter') || 'ALL';
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string>('ALL');
+  const [typeFilter, setTypeFilter] = useState<string>(urlType);
   const [prospectFilter, setProspectFilter] = useState<string>('ALL');
   const [authorFilter, setAuthorFilter] = useState<string>('ALL');
+
+  // Synchronize from URL params
+  useEffect(() => {
+    const t = searchParams.get('type') || searchParams.get('filter');
+    if (t) {
+      setTypeFilter(t.toUpperCase());
+    }
+  }, [searchParams]);
+
+  const handleTypeFilterChange = (newType: string) => {
+    setTypeFilter(newType);
+    if (newType === 'ALL') {
+      searchParams.delete('type');
+      searchParams.delete('filter');
+      setSearchParams(searchParams);
+    } else {
+      setSearchParams({ type: newType });
+    }
+  };
 
   // Audio playback simulation state
   const [playingActivityId, setPlayingActivityId] = useState<string | null>(null);
@@ -462,7 +484,7 @@ export const ActivitiesPage: React.FC = () => {
           subtext="Chronological events"
           icon={Activity}
           iconVariant="neutral"
-          onClick={() => setTypeFilter('ALL')}
+          onClick={() => handleTypeFilterChange('ALL')}
           className={typeFilter === 'ALL' && !isFiltered ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''}
         />
         <MetricCard
@@ -471,7 +493,7 @@ export const ActivitiesPage: React.FC = () => {
           subtext="Outbound & inbound"
           icon={Phone}
           iconVariant="success"
-          onClick={() => setTypeFilter('CALL')}
+          onClick={() => handleTypeFilterChange('CALL')}
           className={typeFilter === 'CALL' ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''}
         />
         <MetricCard
@@ -480,7 +502,7 @@ export const ActivitiesPage: React.FC = () => {
           subtext="Direct conversations"
           icon={MessageSquare}
           iconVariant="success"
-          onClick={() => setTypeFilter('WHATSAPP')}
+          onClick={() => handleTypeFilterChange('WHATSAPP')}
           className={typeFilter === 'WHATSAPP' ? 'border-[#16A34A] ring-1 ring-[#16A34A]/30' : ''}
         />
         <MetricCard
@@ -489,7 +511,7 @@ export const ActivitiesPage: React.FC = () => {
           subtext="Pipeline & task updates"
           icon={ArrowRight}
           iconVariant="info"
-          onClick={() => setTypeFilter('STAGE_CHANGE')}
+          onClick={() => handleTypeFilterChange('STAGE_CHANGE')}
           className={typeFilter === 'STAGE_CHANGE' ? 'border-[#2563EB] ring-1 ring-[#2563EB]/30' : ''}
         />
       </div>
@@ -549,7 +571,7 @@ export const ActivitiesPage: React.FC = () => {
         </div>
 
         {/* Bottom toolbar: Category Filter Pills */}
-        <FilterPills options={filterOptions} activeId={typeFilter} onChange={setTypeFilter} />
+        <FilterPills options={filterOptions} activeId={typeFilter} onChange={handleTypeFilterChange} />
       </div>
 
       {/* 4. Chronological Timeline Feed */}

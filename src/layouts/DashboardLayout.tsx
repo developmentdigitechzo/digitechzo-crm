@@ -38,8 +38,8 @@ export const DashboardLayout: React.FC = () => {
         <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-5 lg:p-6">
-          <div className="max-w-7xl mx-auto space-y-5">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6">
+          <div className="max-w-7xl mx-auto space-y-3.5 sm:space-y-5">
             <Outlet />
           </div>
         </main>

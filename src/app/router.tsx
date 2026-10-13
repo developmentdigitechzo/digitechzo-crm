@@ -12,6 +12,7 @@ import { TasksPage } from '@/pages/tasks/TasksPage';
 import { ActivitiesPage } from '@/pages/activities/ActivitiesPage';
 import { MeetingsPage } from '@/pages/meetings/MeetingsPage';
 import { ProposalsPage } from '@/pages/proposals/ProposalsPage';
+import { InvoicesPage } from '@/pages/invoices/InvoicesPage';
 import { CustomersPage } from '@/pages/customers/CustomersPage';
 import { ReportsPage } from '@/pages/reports/ReportsPage';
 import { TeamPage } from '@/pages/team/TeamPage';
@@ -68,6 +69,10 @@ export const router = createBrowserRouter([
       {
         path: 'proposals',
         element: <ProposalsPage />,
+      },
+      {
+        path: 'invoices',
+        element: <InvoicesPage />,
       },
       {
         path: 'customers',

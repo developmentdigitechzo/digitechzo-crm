@@ -41,7 +41,7 @@ export class LeadsService {
     user: AuthenticatedUser,
   ): Promise<PaginatedLeadsResponseDto> {
     const page = Math.max(1, query.page || 1);
-    const limit = Math.min(100, Math.max(1, query.limit || 20));
+    const limit = Math.min(500, Math.max(1, query.limit || 20));
     const skip = (page - 1) * limit;
 
     // Base scoping: strict tenant boundary and non-deleted
@@ -151,7 +151,15 @@ export class LeadsService {
    */
   async create(dto: CreateLeadDto, user: AuthenticatedUser): Promise<LeadResponseDto> {
     // 1. Deduplication check: active phone or email (if provided) in this tenant
-    const orConditions: any[] = [{ phone: dto.phone }];
+    const cleanPhone = dto.phone.replace(/\D/g, '').slice(-10);
+    const existingPhoneConditions: Prisma.LeadWhereInput[] = [
+      { phone: cleanPhone },
+      { phone: `+91${cleanPhone}` },
+      { phone: `91${cleanPhone}` },
+      { phone: { endsWith: cleanPhone } },
+    ];
+
+    const orConditions: Prisma.LeadWhereInput[] = [...existingPhoneConditions];
     if (dto.email && dto.email.trim()) {
       orConditions.push({ email: dto.email.trim().toLowerCase() });
     }
@@ -165,8 +173,14 @@ export class LeadsService {
     });
 
     if (existingLead) {
+      const existingDigits = (existingLead.phone || '').replace(/\D/g, '').slice(-10);
+      if (existingDigits === cleanPhone) {
+        throw new ConflictException(
+          `Phone number ${cleanPhone} is already registered for lead "${existingLead.fullName}". Duplicate phone numbers are not allowed.`,
+        );
+      }
       throw new ConflictException(
-        'An active lead with this phone number or email already exists in this organization',
+        'An active lead with this email address already exists in this organization',
       );
     }
 
@@ -196,7 +210,7 @@ export class LeadsService {
           fullName: dto.fullName,
           companyName: dto.companyName || null,
           title: dto.title || null,
-          phone: dto.phone,
+          phone: cleanPhone,
           email: (dto.email ? dto.email.trim().toLowerCase() : null) as any,
           source: dto.source,
           status: LeadStatusEnum.NEW,
@@ -302,13 +316,23 @@ export class LeadsService {
     const lead = await this.getLeadOrThrow(id, user);
 
     // 2. Deduplication check if phone or email changed
+    let cleanPhone: string | undefined = undefined;
     if (dto.phone || dto.email) {
       const duplicateConditions: Prisma.LeadWhereInput[] = [];
-      if (dto.phone && dto.phone !== lead.phone) {
-        duplicateConditions.push({ phone: dto.phone });
+      if (dto.phone) {
+        cleanPhone = dto.phone.replace(/\D/g, '').slice(-10);
+        const currentDigits = (lead.phone || '').replace(/\D/g, '').slice(-10);
+        if (cleanPhone !== currentDigits) {
+          duplicateConditions.push(
+            { phone: cleanPhone },
+            { phone: `+91${cleanPhone}` },
+            { phone: `91${cleanPhone}` },
+            { phone: { endsWith: cleanPhone } },
+          );
+        }
       }
-      if (dto.email && dto.email !== lead.email) {
-        duplicateConditions.push({ email: dto.email });
+      if (dto.email && dto.email.trim() && dto.email.trim().toLowerCase() !== (lead.email || '').toLowerCase()) {
+        duplicateConditions.push({ email: dto.email.trim().toLowerCase() });
       }
 
       if (duplicateConditions.length > 0) {
@@ -321,8 +345,14 @@ export class LeadsService {
           },
         });
         if (existing) {
+          const existingDigits = (existing.phone || '').replace(/\D/g, '').slice(-10);
+          if (cleanPhone && existingDigits === cleanPhone) {
+            throw new ConflictException(
+              `Phone number ${cleanPhone} is already registered for lead "${existing.fullName}". Duplicate phone numbers are not allowed.`,
+            );
+          }
           throw new ConflictException(
-            'An active lead with this phone number or email already exists in this organization',
+            'An active lead with this email address already exists in this organization',
           );
         }
       }
@@ -336,8 +366,8 @@ export class LeadsService {
     if (dto.fullName !== undefined) updateData.fullName = dto.fullName;
     if (dto.companyName !== undefined) updateData.companyName = dto.companyName;
     if (dto.title !== undefined) updateData.title = dto.title;
-    if (dto.phone !== undefined) updateData.phone = dto.phone;
-    if (dto.email !== undefined) updateData.email = dto.email;
+    if (dto.phone !== undefined) updateData.phone = cleanPhone || dto.phone.replace(/\D/g, '').slice(-10);
+    if (dto.email !== undefined) updateData.email = dto.email ? dto.email.trim().toLowerCase() : null;
     if (dto.priority !== undefined) updateData.priority = dto.priority;
     if (dto.temperature !== undefined) updateData.temperature = dto.temperature;
     if (dto.serviceInterest !== undefined) updateData.serviceInterest = dto.serviceInterest;

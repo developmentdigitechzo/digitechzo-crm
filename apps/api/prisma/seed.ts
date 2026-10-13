@@ -80,6 +80,10 @@ export async function seedDatabase() {
     { resource: 'customers', action: 'create', description: 'Create/convert customers' },
     { resource: 'customers', action: 'update', description: 'Update customer details' },
     { resource: 'customers', action: 'delete', description: 'Deactivate/delete customers' },
+    { resource: 'invoices', action: 'read', description: 'View invoices and billing records' },
+    { resource: 'invoices', action: 'create', description: 'Generate new invoices' },
+    { resource: 'invoices', action: 'update', description: 'Update invoices and statuses' },
+    { resource: 'invoices', action: 'delete', description: 'Delete invoices' },
     { resource: 'reports', action: 'read', description: 'View executive analytics' },
   ];
 
@@ -114,6 +118,7 @@ export async function seedDatabase() {
     'meetings:read', 'meetings:create', 'meetings:update',
     'proposals:read', 'proposals:create', 'proposals:update',
     'customers:read', 'customers:create', 'customers:update',
+    'invoices:read', 'invoices:create', 'invoices:update', 'invoices:delete',
     'reports:read',
   ];
   const managerRoleId = rolesMap.get('MANAGER')!;
@@ -137,6 +142,7 @@ export async function seedDatabase() {
     'meetings:read', 'meetings:create', 'meetings:update',
     'proposals:read', 'proposals:create', 'proposals:update',
     'customers:read', 'customers:create', 'customers:update',
+    'invoices:read', 'invoices:create', 'invoices:update',
     'reports:read',
   ];
   const bdeRoleId = rolesMap.get('BDE_SALES')!;

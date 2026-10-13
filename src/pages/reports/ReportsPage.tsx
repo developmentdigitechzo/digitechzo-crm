@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
 import { EmptyState } from '@/components/common/EmptyState';
@@ -6,14 +8,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  MOCK_DEALS,
-  MOCK_LEADS,
-  MOCK_TASKS,
-  MOCK_ACTIVITIES,
-  MOCK_PIPELINE_STAGES,
-} from '@/mocks/mockData';
-import { MOCK_USERS } from '@/mocks/mockAuth';
+import { crmApi } from '@/lib/api';
 import { formatCurrency, cn } from '@/lib/utils';
 import {
   TrendingUp,
@@ -27,18 +22,160 @@ import {
   Layers,
   Share2,
   X,
+  Loader2,
+  RotateCcw,
+  AlertCircle,
 } from 'lucide-react';
 
 export const ReportsPage: React.FC = () => {
+  const navigate = useNavigate();
   // Local UI State
   const [activeTab, setActiveTab] = useState<'overview' | 'reps' | 'sources'>('overview');
   const [repFilter, setRepFilter] = useState<string>('ALL');
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
-  // 1. Authoritative Record-Derived Calculations
+  // 1. Fetch Real Database Records from CRM APIs
+  const {
+    data: dealsResponse,
+    isLoading: isDealsLoading,
+    isError: isDealsError,
+    refetch: refetchDeals,
+  } = useQuery({
+    queryKey: ['reports-deals'],
+    queryFn: () => crmApi.getDeals({ limit: 100 }),
+  });
+
+  const {
+    data: stagesResponse,
+    isLoading: isStagesLoading,
+    refetch: refetchStages,
+  } = useQuery({
+    queryKey: ['reports-stages'],
+    queryFn: () => crmApi.getPipelineStages(),
+  });
+
+  const {
+    data: leadsResponse,
+    isLoading: isLeadsLoading,
+    refetch: refetchLeads,
+  } = useQuery({
+    queryKey: ['reports-leads'],
+    queryFn: () => crmApi.getLeads({ limit: 100 }),
+  });
+
+  const {
+    data: tasksResponse,
+    isLoading: isTasksLoading,
+    refetch: refetchTasks,
+  } = useQuery({
+    queryKey: ['reports-tasks'],
+    queryFn: () => crmApi.getTasks({ limit: 100 }),
+  });
+
+  const {
+    data: activitiesResponse,
+    isLoading: isActivitiesLoading,
+    refetch: refetchActivities,
+  } = useQuery({
+    queryKey: ['reports-activities'],
+    queryFn: () => crmApi.getActivities({ limit: 100 }),
+  });
+
+  const {
+    data: usersResponse,
+    isLoading: isUsersLoading,
+    refetch: refetchUsers,
+  } = useQuery({
+    queryKey: ['reports-users'],
+    queryFn: () => crmApi.getUsers({ limit: 100 }),
+  });
+
+  // Normalize Backend Data
+  const rawDeals: any[] = useMemo(() => {
+    return dealsResponse?.items || dealsResponse?.data || (Array.isArray(dealsResponse) ? dealsResponse : []);
+  }, [dealsResponse]);
+
+  const rawStages: any[] = useMemo(() => {
+    return Array.isArray(stagesResponse) ? stagesResponse : [];
+  }, [stagesResponse]);
+
+  const rawLeads: any[] = useMemo(() => {
+    return (
+      leadsResponse?.items ||
+      leadsResponse?.leads ||
+      (Array.isArray(leadsResponse?.data) ? leadsResponse?.data : leadsResponse?.data?.items) ||
+      (Array.isArray(leadsResponse) ? leadsResponse : [])
+    );
+  }, [leadsResponse]);
+
+  const rawTasks: any[] = useMemo(() => {
+    return tasksResponse?.data || tasksResponse?.items || (Array.isArray(tasksResponse) ? tasksResponse : []);
+  }, [tasksResponse]);
+
+  const rawActivities: any[] = useMemo(() => {
+    return activitiesResponse?.data || activitiesResponse?.items || (Array.isArray(activitiesResponse) ? activitiesResponse : []);
+  }, [activitiesResponse]);
+
+  const rawUsers: any[] = useMemo(() => {
+    return usersResponse?.data || (Array.isArray(usersResponse) ? usersResponse : []);
+  }, [usersResponse]);
+
+  // Map to frontend normalized representations
+  const deals = useMemo(() => {
+    return rawDeals.map((item: any) => ({
+      id: item.id,
+      title: item.title,
+      companyName: item.leadName || item.companyName || item.title || 'Opportunity',
+      stageId: item.stageId,
+      stageName: item.stageName,
+      amount: Number(item.value ?? item.amount ?? 0),
+      probability: Number(item.probability ?? 50),
+      ownerId: item.ownerId || '',
+      ownerName: item.ownerName || 'Unassigned',
+      status: (item.status || 'OPEN') as 'OPEN' | 'WON' | 'LOST',
+    }));
+  }, [rawDeals]);
+
+  const leads = useMemo(() => {
+    return rawLeads.map((item: any) => ({
+      id: item.id,
+      fullName: item.fullName || 'Lead',
+      companyName: item.companyName || item.fullName || 'Lead',
+      source: item.source || 'DIRECT',
+      status: item.status,
+      serviceInterest: item.serviceInterest || 'General Inquiry',
+      ownerId: item.ownerId || item.owner?.id || '',
+      ownerName: item.ownerName || item.owner?.name || 'Unassigned',
+    }));
+  }, [rawLeads]);
+
+  const tasks = useMemo(() => {
+    return rawTasks.map((t: any) => {
+      const isCompleted = t.status === 'COMPLETED';
+      const isCancelled = t.status === 'CANCELLED';
+      const isOverdue = !isCompleted && !isCancelled && t.dueDate && new Date(t.dueDate) < new Date();
+      return {
+        id: t.id,
+        title: t.title,
+        ownerId: t.assignedTo || t.assigneeId || t.ownerId || '',
+        status: isCompleted ? 'COMPLETED' : isCancelled ? 'CANCELLED' : isOverdue ? 'OVERDUE' : 'PENDING',
+      };
+    });
+  }, [rawTasks]);
+
+  const activities = useMemo(() => {
+    return rawActivities.map((a: any) => ({
+      id: a.id,
+      authorName: a.authorName || a.createdBy?.name || a.author?.name || 'Staff',
+      authorId: a.userId || a.authorId || a.createdById || '',
+      type: a.activityType || 'NOTE',
+    }));
+  }, [rawActivities]);
+
+  // 2. Authoritative Calculations from Real Database
   const activeDeals = useMemo(
-    () => MOCK_DEALS.filter((deal) => deal.status === 'OPEN'),
-    []
+    () => deals.filter((deal) => deal.status === 'OPEN'),
+    [deals]
   );
 
   const activePipelineValue = useMemo(
@@ -56,18 +193,18 @@ export const ReportsPage: React.FC = () => {
   );
 
   const overdueTasks = useMemo(
-    () => MOCK_TASKS.filter((task) => task.status === 'OVERDUE'),
-    []
+    () => tasks.filter((task) => task.status === 'OVERDUE'),
+    [tasks]
   );
 
   const pendingTasks = useMemo(
-    () => MOCK_TASKS.filter((task) => task.status === 'PENDING'),
-    []
+    () => tasks.filter((task) => task.status === 'PENDING'),
+    [tasks]
   );
 
-  // 2. Active Deals Grouped by Pipeline Stage (Derived strictly from MOCK_DEALS)
+  // 3. Active Deals Grouped by Pipeline Stage
   const activeStagesBreakdown = useMemo(() => {
-    const stageMap = new Map<string, { count: number; totalValue: number; deals: typeof MOCK_DEALS }>();
+    const stageMap = new Map<string, { count: number; totalValue: number; deals: typeof deals }>();
 
     activeDeals.forEach((deal) => {
       const existing = stageMap.get(deal.stageId) || { count: 0, totalValue: 0, deals: [] };
@@ -77,10 +214,9 @@ export const ReportsPage: React.FC = () => {
       stageMap.set(deal.stageId, existing);
     });
 
-    // Map against stage names in MOCK_PIPELINE_STAGES
     return Array.from(stageMap.entries()).map(([stageId, data]) => {
-      const stageConfig = MOCK_PIPELINE_STAGES.find((s) => s.id === stageId);
-      const stageName = stageConfig ? stageConfig.name : stageId;
+      const stageConfig = rawStages.find((s) => s.id === stageId);
+      const stageName = stageConfig ? stageConfig.name : (data.deals[0]?.stageName || stageId);
       const sharePercentage = activePipelineValue > 0 ? (data.totalValue / activePipelineValue) * 100 : 0;
       return {
         stageId,
@@ -91,18 +227,19 @@ export const ReportsPage: React.FC = () => {
         deals: data.deals,
       };
     });
-  }, [activeDeals, activePipelineValue]);
+  }, [activeDeals, rawStages, activePipelineValue]);
 
-  // 3. Lead Source Acquisition Breakdown (Derived strictly from MOCK_LEADS)
+  // 4. Lead Source Acquisition Breakdown
   const sourceBreakdown = useMemo(() => {
-    const totalLeads = MOCK_LEADS.length;
-    const sourceMap = new Map<string, { count: number; leads: typeof MOCK_LEADS }>();
+    const totalLeads = leads.length;
+    const sourceMap = new Map<string, { count: number; leads: typeof leads }>();
 
-    MOCK_LEADS.forEach((lead) => {
-      const existing = sourceMap.get(lead.source) || { count: 0, leads: [] };
+    leads.forEach((lead) => {
+      const sKey = lead.source || 'OTHER';
+      const existing = sourceMap.get(sKey) || { count: 0, leads: [] };
       existing.count += 1;
       existing.leads.push(lead);
-      sourceMap.set(lead.source, existing);
+      sourceMap.set(sKey, existing);
     });
 
     return Array.from(sourceMap.entries()).map(([source, data]) => ({
@@ -112,27 +249,31 @@ export const ReportsPage: React.FC = () => {
       percentage: totalLeads > 0 ? (data.count / totalLeads) * 100 : 0,
       leads: data.leads,
     }));
-  }, []);
+  }, [leads]);
 
-  // 4. Rep Performance Leaderboard (Derived strictly from actual arrays)
-  const bdeUsers = useMemo(
-    () => MOCK_USERS.filter((user) => user.role === 'BDE'),
-    []
-  );
-
+  // 5. Team Rep Performance Leaderboard (from Real Users & Assigned Records)
   const repMetrics = useMemo(() => {
-    return bdeUsers.map((rep) => {
-      const assignedLeads = MOCK_LEADS.filter((l) => l.ownerId === rep.id);
-      const repDeals = MOCK_DEALS.filter((d) => d.ownerId === rep.id && d.status === 'OPEN');
+    const repsToAnalyze = rawUsers.length > 0
+      ? rawUsers.filter((u: any) => u.role?.name === 'BDE' || u.role?.name === 'BDE_SALES' || u.role?.name === 'MANAGER' || u.role === 'BDE')
+      : [];
+
+    // Fallback if no specific BDE role filter matches: display all active users
+    const displayUsers = repsToAnalyze.length > 0 ? repsToAnalyze : rawUsers;
+
+    return displayUsers.map((rep: any) => {
+      const repId = rep.id;
+      const repName = rep.name || `${rep.firstName || ''} ${rep.lastName || ''}`.trim() || rep.email;
+      const assignedLeads = leads.filter((l) => l.ownerId === repId);
+      const repDeals = deals.filter((d) => d.ownerId === repId && d.status === 'OPEN');
       const repValue = repDeals.reduce((sum, d) => sum + d.amount, 0);
-      const repTasks = MOCK_TASKS.filter((t) => t.ownerId === rep.id);
-      const repActivities = MOCK_ACTIVITIES.filter((a) => a.authorName === `${rep.firstName} ${rep.lastName}`);
+      const repTasks = tasks.filter((t) => t.ownerId === repId);
+      const repActivities = activities.filter((a) => a.authorId === repId || a.authorName === repName);
 
       return {
-        id: rep.id,
-        name: `${rep.firstName} ${rep.lastName}`,
-        role: rep.role,
-        teamName: rep.teamName || 'Inbound Growth Team',
+        id: repId,
+        name: repName,
+        role: rep.role?.name || rep.role || 'Member',
+        teamName: rep.teamName || 'Sales & Growth',
         assignedLeadsCount: assignedLeads.length,
         activeDealsCount: repDeals.length,
         managedPipelineValue: repValue,
@@ -141,7 +282,7 @@ export const ReportsPage: React.FC = () => {
         loggedActivitiesCount: repActivities.length,
       };
     });
-  }, [bdeUsers]);
+  }, [rawUsers, leads, deals, tasks, activities]);
 
   const filteredRepMetrics = useMemo(() => {
     if (repFilter === 'ALL') return repMetrics;
@@ -167,18 +308,18 @@ export const ReportsPage: React.FC = () => {
     { id: 'sources', label: 'Lead Sources' },
   ];
 
-  // 5. Client-Side Prototype CSV Export
+  // 6. Client-Side CSV Export using Real Database Records
   const handleExportCsv = () => {
     const rows = [
-      ['DigiTechzo CRM - Executive Analytics Summary (October 2026)'],
+      ['DigiTechzo CRM - Executive Analytics Summary'],
       ['Generated On', new Date().toISOString()],
-      ['Data Nature', 'Verified Frontend Record-Derived Analytics'],
+      ['Data Source', 'Live CRM Production Database'],
       [''],
       ['KPI Metrics', 'Value', 'Calculation / Notes'],
-      ['Active Pipeline Value', activePipelineValue.toString(), `Calculated from ${activeDeals.length} active MOCK_DEALS`],
+      ['Active Pipeline Value', activePipelineValue.toString(), `Calculated from ${activeDeals.length} active open deals`],
       ['Weighted Forecast', weightedForecast.toString(), 'Probability-adjusted expected close value'],
-      ['Total Ingested Leads', MOCK_LEADS.length.toString(), 'From MOCK_LEADS (100% assigned with next action)'],
-      ['Active Follow-up Tasks', MOCK_TASKS.length.toString(), `From MOCK_TASKS (${overdueTasks.length} overdue, ${pendingTasks.length} pending)`],
+      ['Total Ingested Leads', leads.length.toString(), `From live Leads database (${leads.length} leads)`],
+      ['Active Follow-up Tasks', tasks.length.toString(), `From live Tasks database (${overdueTasks.length} overdue, ${pendingTasks.length} pending)`],
       [''],
       ['Active Pipeline Deals by Stage', 'Stage Name', 'Deal Count', 'Total Value (INR)', 'Share %'],
       ...activeStagesBreakdown.map((s) => [
@@ -208,32 +349,60 @@ export const ReportsPage: React.FC = () => {
         r.activeTasksCount.toString(),
         r.loggedActivitiesCount.toString(),
       ]),
-      [''],
-      ['Pipeline Configuration Reference (Metadata)', 'Stage Name', 'Order', 'Benchmark Deal Target', 'Benchmark Value (INR)', 'Type'],
-      ...MOCK_PIPELINE_STAGES.map((ps) => [
-        ps.id,
-        ps.name,
-        ps.order.toString(),
-        ps.dealCount.toString(),
-        ps.totalValue.toString(),
-        ps.stageType,
-      ]),
     ];
 
     const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', 'digitechzo_analytics_oct_2026.csv');
+    link.setAttribute('download', `digitechzo_analytics_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    setExportNotice('Demo report exported.');
+    setExportNotice('Live analytics report exported.');
     setTimeout(() => {
       setExportNotice(null);
     }, 4000);
   };
+
+  const isAnyLoading =
+    isDealsLoading || isLeadsLoading || isTasksLoading || isStagesLoading || isActivitiesLoading || isUsersLoading;
+
+  if (isAnyLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 space-y-3">
+        <Loader2 className="h-8 w-8 animate-spin text-[#57B71B]" />
+        <p className="text-sm text-txt-muted">Loading live analytics reports...</p>
+      </div>
+    );
+  }
+
+  if (isDealsError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 space-y-4">
+        <div className="flex items-center gap-2 text-danger-dark font-medium">
+          <AlertCircle className="h-5 w-5" />
+          <span>Failed to load reports from database</span>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            refetchDeals();
+            refetchStages();
+            refetchLeads();
+            refetchTasks();
+            refetchActivities();
+            refetchUsers();
+          }}
+          className="cursor-pointer"
+        >
+          <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Retry
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4 sm:space-y-5 select-none pb-8">
@@ -242,8 +411,8 @@ export const ReportsPage: React.FC = () => {
         title="Reports & Analytics"
         description="Executive sales performance, funnel velocity, and revenue analytics"
         count={activeDeals.length}
-        badge="Active Window: Oct 2026"
-        badgeVariant="neutral"
+        badge="Live CRM Database"
+        badgeVariant="success"
         actions={
           <Button
             variant="outline"
@@ -262,7 +431,7 @@ export const ReportsPage: React.FC = () => {
         <div className="flex items-center justify-between p-3 rounded-card bg-[#F0FDF4] border border-emerald-200 text-[#16A34A] text-xs font-medium animate-in fade-in duration-200">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-[#16A34A]" />
-            <span>{exportNotice} Download saved as <code className="font-mono text-[11px] bg-white px-1 py-0.5 rounded border border-emerald-200 text-slate-800">digitechzo_analytics_oct_2026.csv</code></span>
+            <span>{exportNotice} Download saved as CSV file</span>
           </div>
           <button
             onClick={() => setExportNotice(null)}
@@ -297,17 +466,21 @@ export const ReportsPage: React.FC = () => {
           })}
         </div>
         <div className="text-[11px] text-txt-muted font-medium shrink-0">
-          Source data: <span className="font-semibold text-txt-secondary">3</span> deals &bull; <span className="font-semibold text-txt-secondary">4</span> leads &bull; <span className="font-semibold text-txt-secondary">3</span> tasks
+          Live data: <span className="font-semibold text-txt-secondary">{deals.length}</span> deals &bull; <span className="font-semibold text-txt-secondary">{leads.length}</span> leads &bull; <span className="font-semibold text-txt-secondary">{tasks.length}</span> tasks
         </div>
       </div>
 
       {/* 3. Executive KPI Metric Row (4 Compact Cards) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         {/* Metric 1: Active Pipeline Value */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
+        <Card
+          onClick={() => navigate('/pipeline')}
+          title="Click to view Pipeline Deals"
+          className="cursor-pointer border-border hover:border-[#16A34A]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
           <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal">
+              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal group-hover:text-txt-primary transition-colors">
                 Active Pipeline
               </p>
               <div className="text-base sm:text-2xl font-bold tracking-tight text-txt-primary font-tabular">
@@ -317,17 +490,21 @@ export const ReportsPage: React.FC = () => {
                 {activeDeals.length} active opportunities
               </p>
             </div>
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#16A34A] shrink-0">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#16A34A] shrink-0 transition-transform group-hover:scale-105">
               <TrendingUp className="h-4 w-4" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 2: Weighted Forecast */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
+        <Card
+          onClick={() => setActiveTab('overview')}
+          title="Click to view Executive Overview"
+          className="cursor-pointer border-border hover:border-[#7C3AED]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
           <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal">
+              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal group-hover:text-txt-primary transition-colors">
                 Weighted Forecast
               </p>
               <div className="text-base sm:text-2xl font-bold tracking-tight text-txt-primary font-tabular">
@@ -337,41 +514,49 @@ export const ReportsPage: React.FC = () => {
                 Probability-adjusted
               </p>
             </div>
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-[#F5F3FF] text-[#7C3AED] shrink-0">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-[#F5F3FF] text-[#7C3AED] shrink-0 transition-transform group-hover:scale-105">
               <Target className="h-4 w-4" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 3: Total Ingested Leads */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
+        <Card
+          onClick={() => navigate('/leads')}
+          title="Click to view Leads"
+          className="cursor-pointer border-border hover:border-[#2563EB]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
           <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal">
+              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal group-hover:text-txt-primary transition-colors">
                 Ingested Leads
               </p>
               <div className="text-base sm:text-2xl font-bold tracking-tight text-txt-primary font-tabular">
-                {MOCK_LEADS.length} Leads
+                {leads.length} Leads
               </div>
               <p className="text-[10px] sm:text-[11px] text-[#2563EB] font-medium leading-tight whitespace-normal">
-                100% assigned
+                {leads.length > 0 ? 'Live database' : 'No leads recorded'}
               </p>
             </div>
-            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-[#EFF6FF] text-[#2563EB] shrink-0">
+            <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn bg-[#EFF6FF] text-[#2563EB] shrink-0 transition-transform group-hover:scale-105">
               <Users className="h-4 w-4" />
             </div>
           </CardContent>
         </Card>
 
         {/* Metric 4: Active Follow-up Queue */}
-        <Card className="border-border hover:border-slate-300 transition-colors shadow-none">
+        <Card
+          onClick={() => navigate('/tasks')}
+          title="Click to view Follow-up Tasks"
+          className="cursor-pointer border-border hover:border-[#D97706]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+        >
           <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
             <div className="min-w-0 flex-1 space-y-0.5">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal">
+              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider leading-tight whitespace-normal group-hover:text-txt-primary transition-colors">
                 Follow-up Queue
               </p>
               <div className="text-base sm:text-2xl font-bold tracking-tight text-txt-primary font-tabular">
-                {MOCK_TASKS.length} Tasks
+                {tasks.length} Tasks
               </div>
               <p
                 className={cn(
@@ -386,7 +571,7 @@ export const ReportsPage: React.FC = () => {
             </div>
             <div
               className={cn(
-                'flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn shrink-0',
+                'flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-btn shrink-0 transition-transform group-hover:scale-105',
                 overdueTasks.length > 0 ? 'bg-[#FEF2F2] text-[#DC2626]' : 'bg-[#FFFBEB] text-[#D97706]'
               )}
             >
@@ -413,49 +598,56 @@ export const ReportsPage: React.FC = () => {
               </Badge>
             </CardHeader>
             <CardContent className="p-4 space-y-3.5">
-              {activeStagesBreakdown.map((stage) => (
-                <div key={stage.stageId} className="space-y-1.5 p-3 rounded-btn border border-border/70 bg-white">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1 sm:gap-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="h-2 w-2 rounded-full bg-[#57B71B] shrink-0" />
-                      <span className="font-bold text-txt-primary truncate">{stage.stageName}</span>
-                      <span className="text-[11px] text-txt-muted font-normal">
-                        ({stage.count} deal{stage.count > 1 ? 's' : ''})
-                      </span>
+              {activeStagesBreakdown.length === 0 ? (
+                <EmptyState
+                  title="No active deals found"
+                  description="Create deals or move leads to pipeline to view stage breakdown."
+                />
+              ) : (
+                activeStagesBreakdown.map((stage) => (
+                  <div key={stage.stageId} className="space-y-1.5 p-3 rounded-btn border border-border/70 bg-white">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-1 sm:gap-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="h-2 w-2 rounded-full bg-[#57B71B] shrink-0" />
+                        <span className="font-bold text-txt-primary truncate">{stage.stageName}</span>
+                        <span className="text-[11px] text-txt-muted font-normal">
+                          ({stage.count} deal{stage.count > 1 ? 's' : ''})
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 font-tabular shrink-0">
+                        <span className="font-bold text-txt-primary text-xs">
+                          {formatCurrency(stage.totalValue)}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-txt-secondary font-semibold">
+                          {stage.sharePercentage.toFixed(1)}%
+                        </span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 font-tabular shrink-0">
-                      <span className="font-bold text-txt-primary text-xs">
-                        {formatCurrency(stage.totalValue)}
-                      </span>
-                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 text-txt-secondary font-semibold">
-                        {stage.sharePercentage.toFixed(1)}%
-                      </span>
+
+                    {/* Stage Progress Visual */}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-[#57B71B] transition-all duration-300"
+                        style={{ width: `${Math.max(stage.sharePercentage, 8)}%` }}
+                      />
+                    </div>
+
+                    {/* Associated Deal Pills */}
+                    <div className="pt-1 flex flex-wrap gap-1.5">
+                      {stage.deals.map((deal) => (
+                        <span
+                          key={deal.id}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-slate-50 border border-border text-txt-secondary font-medium"
+                        >
+                          <Building2 className="h-2.5 w-2.5 text-txt-muted" />
+                          <span className="truncate max-w-[140px] sm:max-w-[200px]">{deal.companyName}</span>
+                          <span className="text-txt-muted font-tabular">({formatCurrency(deal.amount)})</span>
+                        </span>
+                      ))}
                     </div>
                   </div>
-
-                  {/* Stage Progress Visual */}
-                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-[#57B71B] transition-all duration-300"
-                      style={{ width: `${Math.max(stage.sharePercentage, 8)}%` }}
-                    />
-                  </div>
-
-                  {/* Associated Deal Pills */}
-                  <div className="pt-1 flex flex-wrap gap-1.5">
-                    {stage.deals.map((deal) => (
-                      <span
-                        key={deal.id}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] bg-slate-50 border border-border text-txt-secondary font-medium"
-                      >
-                        <Building2 className="h-2.5 w-2.5 text-txt-muted" />
-                        <span className="truncate max-w-[140px] sm:max-w-[200px]">{deal.companyName}</span>
-                        <span className="text-txt-muted font-tabular">({formatCurrency(deal.amount)})</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
 
@@ -469,42 +661,49 @@ export const ReportsPage: React.FC = () => {
                 </CardTitle>
               </div>
               <Badge variant="outline" className="text-[10px] font-semibold border-border text-txt-secondary">
-                {MOCK_LEADS.length} Leads
+                {leads.length} Leads
               </Badge>
             </CardHeader>
             <CardContent className="p-4 space-y-3">
-              {sourceBreakdown.map((sb) => (
-                <div key={sb.source} className="p-2.5 rounded-btn border border-border/70 bg-white space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          'px-1.5 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider',
-                          sb.source === 'META_ADS' && 'bg-blue-50 text-blue-700 border border-blue-200',
-                          sb.source === 'GOOGLE_ADS' && 'bg-amber-50 text-amber-700 border border-amber-200',
-                          sb.source === 'WEBSITE_FORM' && 'bg-emerald-50 text-emerald-700 border border-emerald-200',
-                          sb.source === 'WHATSAPP' && 'bg-green-50 text-green-700 border border-green-200'
-                        )}
-                      >
-                        {sb.label}
-                      </span>
+              {sourceBreakdown.length === 0 ? (
+                <EmptyState
+                  title="No leads recorded"
+                  description="Add or import leads to see acquisition channel attribution."
+                />
+              ) : (
+                sourceBreakdown.map((sb) => (
+                  <div key={sb.source} className="p-2.5 rounded-btn border border-border/70 bg-white space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            'px-1.5 py-0.2 rounded text-[10px] font-bold uppercase tracking-wider',
+                            sb.source === 'META_ADS' && 'bg-blue-50 text-blue-700 border border-blue-200',
+                            sb.source === 'GOOGLE_ADS' && 'bg-amber-50 text-amber-700 border border-amber-200',
+                            sb.source === 'WEBSITE_FORM' && 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+                            sb.source === 'WHATSAPP' && 'bg-green-50 text-green-700 border border-green-200'
+                          )}
+                        >
+                          {sb.label}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 font-tabular text-xs">
+                        <span className="font-bold text-txt-primary">{sb.count} lead</span>
+                        <span className="text-[11px] text-txt-muted">({sb.percentage.toFixed(0)}%)</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 font-tabular text-xs">
-                      <span className="font-bold text-txt-primary">{sb.count} lead</span>
-                      <span className="text-[11px] text-txt-muted">({sb.percentage.toFixed(0)}%)</span>
-                    </div>
-                  </div>
 
-                  {/* Channel Lead Detail */}
-                  <div className="text-[11px] text-txt-secondary space-y-0.5 pt-0.5">
-                    {sb.leads.map((l) => (
-                      <p key={l.id} className="truncate text-txt-muted">
-                        &bull; <span className="font-semibold text-txt-primary">{l.companyName}</span> ({l.serviceInterest})
-                      </p>
-                    ))}
+                    {/* Channel Lead Detail */}
+                    <div className="text-[11px] text-txt-secondary space-y-0.5 pt-0.5">
+                      {sb.leads.map((l) => (
+                        <p key={l.id} className="truncate text-txt-muted">
+                          &bull; <span className="font-semibold text-txt-primary">{l.companyName}</span> ({l.serviceInterest})
+                        </p>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
@@ -617,10 +816,10 @@ export const ReportsPage: React.FC = () => {
                           Team Total
                         </TableCell>
                         <TableCell className="py-3 text-xs text-txt-muted font-medium">
-                          Inbound Growth Team
+                          All Sales Team
                         </TableCell>
                         <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {MOCK_LEADS.length}
+                          {leads.length}
                         </TableCell>
                         <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
                           {activeDeals.length}
@@ -629,7 +828,7 @@ export const ReportsPage: React.FC = () => {
                           {formatCurrency(activePipelineValue)}
                         </TableCell>
                         <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {MOCK_TASKS.length}
+                          {tasks.length}
                         </TableCell>
                         <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
                           {repMetrics.reduce((s, r) => s + r.loggedActivitiesCount, 0)}
@@ -644,45 +843,49 @@ export const ReportsPage: React.FC = () => {
         </Card>
       )}
 
-      {/* 6. Section: Pipeline Configuration Reference (Explicit Configuration Metadata) */}
-      <Card className="border-border bg-slate-50/60 shadow-none">
-        <CardHeader className="py-3 px-4 border-b border-border bg-slate-100/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sliders className="h-4 w-4 text-txt-muted" />
-            <div>
-              <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
-                Pipeline Configuration Reference
-              </CardTitle>
-            </div>
-          </div>
-          <Badge variant="outline" className="text-[10px] font-bold bg-white text-txt-muted border-border self-start sm:self-auto">
-            System Benchmark Metadata
-          </Badge>
-        </CardHeader>
-        <CardContent className="p-4 space-y-3">
-          <p className="text-[11px] text-txt-muted leading-relaxed">
-            The values below represent the configured CRM stage taxonomy and target capacity benchmarks defined in organization settings (
-            <code className="font-mono text-[10px] bg-white px-1 py-0.5 rounded border border-border">MOCK_PIPELINE_STAGES</code>
-            ). They serve as stage architecture reference definitions and are kept distinct from the 3 active deal records analyzed above.
-          </p>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">
-            {MOCK_PIPELINE_STAGES.map((ps) => (
-              <div key={ps.id} className="p-2.5 rounded-btn bg-white border border-border space-y-1 text-center">
-                <span className="text-[10px] font-bold text-txt-muted uppercase block truncate">
-                  {ps.order}. {ps.name}
-                </span>
-                <span className="text-xs font-bold text-txt-primary block font-tabular">
-                  {formatCurrency(ps.totalValue)}
-                </span>
-                <span className="text-[10px] text-txt-muted block font-medium font-tabular">
-                  Benchmark: {ps.dealCount} deals
-                </span>
+      {/* 6. Section: Pipeline Stages Overview (From Live CRM Stages) */}
+      {rawStages.length > 0 && (
+        <Card className="border-border bg-slate-50/60 shadow-none">
+          <CardHeader className="py-3 px-4 border-b border-border bg-slate-100/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sliders className="h-4 w-4 text-txt-muted" />
+              <div>
+                <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
+                  Pipeline Stages Overview
+                </CardTitle>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+            </div>
+            <Badge variant="outline" className="text-[10px] font-bold bg-white text-txt-muted border-border self-start sm:self-auto">
+              Live Database Configuration
+            </Badge>
+          </CardHeader>
+          <CardContent className="p-4 space-y-3">
+            <p className="text-[11px] text-txt-muted leading-relaxed">
+              Active CRM pipeline stages configured in your database and current distribution across each phase:
+            </p>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 pt-1">
+              {rawStages.map((ps: any, idx: number) => {
+                const stageDeals = deals.filter((d) => d.stageId === ps.id);
+                const stageVal = stageDeals.reduce((sum, d) => sum + d.amount, 0);
+                return (
+                  <div key={ps.id || idx} className="p-2.5 rounded-btn bg-white border border-border space-y-1 text-center">
+                    <span className="text-[10px] font-bold text-txt-muted uppercase block truncate">
+                      {ps.order ?? idx + 1}. {ps.name}
+                    </span>
+                    <span className="text-xs font-bold text-txt-primary block font-tabular">
+                      {formatCurrency(stageVal)}
+                    </span>
+                    <span className="text-[10px] text-txt-muted block font-medium font-tabular">
+                      {stageDeals.length} active deal{stageDeals.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };

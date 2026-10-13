@@ -540,4 +540,69 @@ export interface UpdateUserPayload {
   status?: string;
 }
 
+export type InvoiceStatus = 'DRAFT' | 'SENT' | 'PAID' | 'PARTIALLY_PAID' | 'OVERDUE' | 'CANCELLED';
+
+export interface InvoiceItemRow {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface InvoiceItem {
+  id: string;
+  invoiceNumber: string;
+  title: string;
+  clientName: string;
+  companyName: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  leadId?: string;
+  dealId?: string;
+  proposalId?: string;
+  status: InvoiceStatus;
+  issueDate: string;
+  dueDate: string;
+  subtotal: number;
+  taxPercent: number;
+  taxAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  amountPaid: number;
+  balanceDue: number;
+  paymentMethod?: string;
+  paidAt?: string;
+  notes?: string;
+  items?: InvoiceItemRow[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CreateInvoicePayload {
+  title: string;
+  clientName: string;
+  companyName: string;
+  clientEmail?: string;
+  clientPhone?: string;
+  leadId?: string;
+  dealId?: string;
+  proposalId?: string;
+  issueDate: string;
+  dueDate: string;
+  items: { description: string; quantity: number; unitPrice: number }[];
+  taxPercent?: number;
+  discountAmount?: number;
+  notes?: string;
+}
+
+export interface UpdateInvoiceStatusPayload {
+  status: InvoiceStatus;
+  amountPaid?: number;
+  paymentMethod?: string;
+  paidAt?: string;
+  notes?: string;
+}
+
+
 

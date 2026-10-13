@@ -18,12 +18,12 @@ export class DealQueryDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ description: 'Number of items per page (max 100)', default: 20 })
+  @ApiPropertyOptional({ description: 'Number of items per page (max 500)', default: 20 })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(500)
   limit?: number = 20;
 
   @ApiPropertyOptional({ description: 'Free-text search across title and notes' })

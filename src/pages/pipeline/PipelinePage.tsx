@@ -554,8 +554,12 @@ export const PipelinePage: React.FC = () => {
       ) : viewMode === 'kanban' ? (
         /* KANBAN BOARD VIEW */
         <div className="relative w-full overflow-x-auto pb-3 pt-1">
-          <div className="flex gap-3 items-start min-w-[1400px]">
-            {stages.map((stage) => {
+          <div
+            className={`flex gap-3 items-start ${
+              mobileStageFilter !== 'ALL' ? 'w-full flex-col sm:flex-row sm:min-w-[1400px]' : 'min-w-[1400px]'
+            }`}
+          >
+            {(mobileStageFilter !== 'ALL' ? stages.filter((s) => s.id === mobileStageFilter) : stages).map((stage) => {
               const stageDeals = filteredDeals.filter((d) => d.stageId === stage.id);
               const isWonStage = stage.stageType === 'WON';
               const isLostStage = stage.stageType === 'LOST';
@@ -563,7 +567,11 @@ export const PipelinePage: React.FC = () => {
               return (
                 <div
                   key={stage.id}
-                  className={`flex-1 min-w-[220px] max-w-[280px] rounded-card border flex flex-col gap-2.5 p-2.5 transition-colors ${
+                  className={`rounded-card border flex flex-col gap-2.5 p-2.5 transition-colors ${
+                    mobileStageFilter !== 'ALL'
+                      ? 'w-full sm:flex-1 sm:min-w-[220px] sm:max-w-[280px]'
+                      : 'flex-1 min-w-[220px] max-w-[280px]'
+                  } ${
                     isWonStage
                       ? 'bg-emerald-50/40 border-emerald-200'
                       : isLostStage
@@ -902,7 +910,7 @@ export const PipelinePage: React.FC = () => {
               </div>
 
               {/* Deal Commercial Details */}
-              <div className="grid grid-cols-2 gap-2.5 p-3 rounded-card bg-white border border-border">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 p-3 rounded-card bg-white border border-border">
                 <div className="space-y-0.5">
                   <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
                     Contact Prospect
@@ -1020,7 +1028,7 @@ export const PipelinePage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">
                   Deal Amount (INR) <span className="text-red-500">*</span>
@@ -1051,7 +1059,7 @@ export const PipelinePage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Win Probability (%)</label>
                 <input
@@ -1075,13 +1083,13 @@ export const PipelinePage: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2 sm:gap-0">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => setIsAddModalOpen(false)}
-                className="h-8 text-xs cursor-pointer"
+                className="w-full sm:w-auto h-8 text-xs cursor-pointer"
               >
                 Cancel
               </Button>
@@ -1089,7 +1097,7 @@ export const PipelinePage: React.FC = () => {
                 type="submit"
                 disabled={isAddSubmitting}
                 size="sm"
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+                className="w-full sm:w-auto h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
               >
                 {isAddSubmitting ? (
                   <>
@@ -1136,7 +1144,7 @@ export const PipelinePage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div className="space-y-1">
                   <label className="text-caption text-txt-secondary block font-medium">Amount (INR)</label>
                   <input
@@ -1165,7 +1173,7 @@ export const PipelinePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <div className="space-y-1">
                   <label className="text-caption text-txt-secondary block font-medium">Win Probability (%)</label>
                   <input
@@ -1189,13 +1197,13 @@ export const PipelinePage: React.FC = () => {
                 </div>
               </div>
 
-              <DialogFooter className="pt-2">
+              <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2 sm:gap-0">
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
                   onClick={() => setEditingDeal(null)}
-                  className="h-8 text-xs cursor-pointer"
+                  className="w-full sm:w-auto h-8 text-xs cursor-pointer"
                 >
                   Cancel
                 </Button>
@@ -1203,7 +1211,7 @@ export const PipelinePage: React.FC = () => {
                   type="submit"
                   disabled={isEditSubmitting}
                   size="sm"
-                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+                  className="w-full sm:w-auto h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
                 >
                   {isEditSubmitting ? (
                     <>

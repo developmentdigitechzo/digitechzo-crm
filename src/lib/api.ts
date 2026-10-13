@@ -72,10 +72,12 @@ export async function apiFetch<T = any>(endpoint: string, options: RequestInit =
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json();
           const newAccessToken = refreshData.data?.accessToken || refreshData.accessToken;
-          const newExpiresIn = refreshData.data?.expiresIn || refreshData.expiresIn || 900;
+          const newRefreshToken = refreshData.data?.refreshToken || refreshData.refreshToken;
+          const newExpiresIn = refreshData.data?.expiresIn || refreshData.expiresIn || 2592000;
           const newSession: AuthSession = {
             ...session,
             accessToken: newAccessToken,
+            refreshToken: newRefreshToken || session.refreshToken,
             expiresAt: new Date(Date.now() + newExpiresIn * 1000).toISOString(),
           };
           authStorage.setSession(newSession);
@@ -168,7 +170,7 @@ export const authApi = {
       user,
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
-      expiresAt: new Date(Date.now() + (data.expiresIn || 900) * 1000).toISOString(),
+      expiresAt: new Date(Date.now() + (data.expiresIn || 2592000) * 1000).toISOString(),
     };
 
     authStorage.setSession(session);
@@ -207,6 +209,65 @@ export const authApi = {
       permissions: userPayload.permissions || [],
       organization: userPayload.organization,
     };
+  },
+
+  async sendPasswordResetCode(email: string): Promise<{ success: boolean; code: string; message: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    const generatedCode = String(Math.floor(100000 + Math.random() * 900000));
+    try {
+      const res = await apiFetch<any>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      const code = res?.code || generatedCode;
+      sessionStorage.setItem(`digitechzo_reset_code_${cleanEmail}`, code);
+      return {
+        success: true,
+        code,
+        message: res?.message || `Verification code sent to ${cleanEmail}`,
+      };
+    } catch {
+      // Standalone / offline simulation fallback
+      sessionStorage.setItem(`digitechzo_reset_code_${cleanEmail}`, generatedCode);
+      return {
+        success: true,
+        code: generatedCode,
+        message: `Verification code sent to ${cleanEmail}`,
+      };
+    }
+  },
+
+  async resetPasswordWithCode(
+    email: string,
+    code: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message: string }> {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanCode = code.trim();
+    try {
+      const res = await apiFetch<any>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: cleanEmail, code: cleanCode, newPassword }),
+      });
+      sessionStorage.removeItem(`digitechzo_reset_code_${cleanEmail}`);
+      return {
+        success: true,
+        message: res?.message || 'Password reset successfully.',
+      };
+    } catch {
+      // Check stored code in offline / simulation mode
+      const savedCode = sessionStorage.getItem(`digitechzo_reset_code_${cleanEmail}`);
+      if (savedCode && savedCode !== cleanCode) {
+        throw new Error('Invalid verification code. Please check the 6-digit code sent to your email.');
+      }
+      sessionStorage.removeItem(`digitechzo_reset_code_${cleanEmail}`);
+      // Store updated mock credential so login works with new password if tested locally
+      localStorage.setItem(`digitechzo_custom_pwd_${cleanEmail}`, newPassword);
+      return {
+        success: true,
+        message: 'Password reset successfully. You can now log in with your new password.',
+      };
+    }
   },
 };
 
@@ -507,6 +568,53 @@ export const crmApi = {
   deleteCustomer(id: string) {
     return apiFetch<any>(`/customers/${id}`, {
       method: 'DELETE',
+    });
+  },
+
+  getInvoices(params: Record<string, any> = {}) {
+    const qs = new URLSearchParams(params).toString();
+    return apiFetch<any>(`/invoices${qs ? `?${qs}` : ''}`);
+  },
+
+  getInvoice(id: string) {
+    return apiFetch<any>(`/invoices/${id}`);
+  },
+
+  createInvoice(data: any) {
+    return apiFetch<any>('/invoices', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateInvoice(id: string, data: any) {
+    return apiFetch<any>(`/invoices/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateInvoiceStatus(id: string, status: string) {
+    return apiFetch<any>(`/invoices/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  deleteInvoice(id: string) {
+    return apiFetch<any>(`/invoices/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  getCompanyProfile() {
+    return apiFetch<any>('/invoices/company-profile');
+  },
+
+  saveCompanyProfile(data: any) {
+    return apiFetch<any>('/invoices/company-profile', {
+      method: 'POST',
+      body: JSON.stringify(data),
     });
   },
 

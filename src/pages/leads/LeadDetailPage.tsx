@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { crmApi } from '@/lib/api';
@@ -14,7 +14,17 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import {
+  cn,
+  formatCurrency,
+  formatDate,
+  getLocalDateString,
+  isTimeOver,
+  getInitialScheduleDateTime,
+  parseTimeToDate,
+  formatDisplayTime,
+  getCurrentFormattedTime,
+} from '@/lib/utils';
 import {
   ArrowLeft,
   Building,
@@ -44,6 +54,7 @@ import {
   MessageCircle,
 } from 'lucide-react';
 import { TaskPriority, LeadSource } from '@/types/crm';
+import { CategorySelect } from '@/components/leads/CategorySelect';
 
 export const LeadDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -126,14 +137,36 @@ export const LeadDetailPage: React.FC = () => {
   });
 
   // Schedule Task / Call Form State
-  const [taskForm, setTaskForm] = useState({
-    title: '',
-    description: '',
-    taskType: 'CALL' as any,
-    dueDate: '',
-    dueTime: '10:00',
-    priority: 'MEDIUM' as TaskPriority,
+  const [taskForm, setTaskForm] = useState(() => {
+    const init = getInitialScheduleDateTime();
+    return {
+      title: '',
+      description: '',
+      taskType: 'CALL' as any,
+      dueDate: init.dueDate,
+      dueTime: init.dueTime,
+      priority: 'MEDIUM' as TaskPriority,
+    };
   });
+
+  const handleOpenTaskModal = () => {
+    const init = getInitialScheduleDateTime();
+    setTaskForm({
+      title: '',
+      description: '',
+      taskType: 'CALL',
+      dueDate: init.dueDate,
+      dueTime: '',
+      priority: 'MEDIUM',
+    });
+    setModalError(null);
+    setIsTaskModalOpen(true);
+  };
+
+  const handleTaskDueDateChange = (newDate: string) => {
+    setTaskForm({ ...taskForm, dueDate: newDate });
+    if (modalError) setModalError(null);
+  };
 
   // Create Deal Form State
   const [dealForm, setDealForm] = useState({
@@ -231,27 +264,48 @@ export const LeadDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
+  // Query all leads for duplicate detection
+  const { data: allLeadsResponse } = useQuery({
+    queryKey: ['leads'],
+    queryFn: () => crmApi.getLeads({ limit: 100 }),
+  });
+  const allLeads: any[] = allLeadsResponse?.items || allLeadsResponse?.data || [];
+
+  const editDuplicateLead = useMemo(() => {
+    const digits = editForm.phone.replace(/\D/g, '').slice(-10);
+    if (digits.length !== 10) return null;
+    return allLeads.find((l) => {
+      if (l.id === id) return false;
+      const lDigits = (l.phone || '').replace(/\D/g, '').slice(-10);
+      return lDigits === digits;
+    });
+  }, [editForm.phone, allLeads, id]);
+
   // Helper to invalidate all lead-related queries
   const invalidateAll = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['lead', id] });
-    await queryClient.invalidateQueries({ queryKey: ['leads'] });
-    await queryClient.invalidateQueries({ queryKey: ['deals'] });
-    await queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
-    await queryClient.invalidateQueries({ queryKey: ['meetings'] });
-    await queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    await queryClient.invalidateQueries({ queryKey: ['proposals'] });
-    await queryClient.invalidateQueries({ queryKey: ['activities'] });
-    await queryClient.invalidateQueries({ queryKey: ['customers'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['lead', id] }),
+      queryClient.invalidateQueries({ queryKey: ['leads'] }),
+      queryClient.invalidateQueries({ queryKey: ['deals'] }),
+      queryClient.invalidateQueries({ queryKey: ['deals', { leadId: id }] }),
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] }),
+      queryClient.invalidateQueries({ queryKey: ['meetings'] }),
+      queryClient.invalidateQueries({ queryKey: ['tasks'] }),
+      queryClient.invalidateQueries({ queryKey: ['proposals'] }),
+      queryClient.invalidateQueries({ queryKey: ['activities'] }),
+      queryClient.invalidateQueries({ queryKey: ['customers'] }),
+    ]);
   };
 
   // Open Edit Modal with full Lead data
   const handleOpenEditModal = () => {
     if (!lead) return;
+    const cleanDigits = (lead.phone || '').replace(/\D/g, '').slice(-10);
     setEditForm({
       fullName: lead.fullName || '',
       companyName: lead.companyName || '',
       title: lead.title || '',
-      phone: lead.phone || '',
+      phone: cleanDigits,
       email: lead.email || '',
       source: (lead.source || 'WEBSITE_FORM') as LeadSource,
       serviceInterest: lead.serviceInterest || '',
@@ -272,19 +326,31 @@ export const LeadDetailPage: React.FC = () => {
     e.preventDefault();
     if (!id) return;
     setModalError(null);
-    setIsSubmitting(true);
 
-    let rawPhone = editForm.phone.trim().replace(/[\s\-\(\)]/g, '');
-    if (!rawPhone.startsWith('+')) {
-      rawPhone = rawPhone.length === 10 ? `+91${rawPhone}` : `+${rawPhone}`;
+    const editPhoneDigits = editForm.phone.replace(/\D/g, '');
+    if (editPhoneDigits.length !== 10) {
+      setModalError(
+        editPhoneDigits.length === 0
+          ? 'Phone Number is required (must be exactly 10 digits).'
+          : `Phone Number must be exactly 10 digits. (You entered ${editPhoneDigits.length} digit${editPhoneDigits.length === 1 ? '' : 's'})`
+      );
+      return;
     }
 
+    if (editDuplicateLead) {
+      setModalError(
+        `This phone number (${editPhoneDigits}) is already registered for lead "${editDuplicateLead.fullName}". Duplicate phone numbers are not allowed.`
+      );
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       await crmApi.updateLead(id, {
         fullName: editForm.fullName.trim(),
         companyName: editForm.companyName.trim() || undefined,
         title: editForm.title.trim() || undefined,
-        phone: rawPhone,
+        phone: editPhoneDigits,
         email: editForm.email.trim() ? editForm.email.trim().toLowerCase() : undefined,
         serviceInterest: editForm.serviceInterest.trim(),
         priority: editForm.priority,
@@ -338,26 +404,47 @@ export const LeadDetailPage: React.FC = () => {
     try {
       if (activeDeal) {
         // Move existing deal to selected stage
-        await crmApi.updateDealStage(activeDeal.id, targetStage.id);
+        const updatedDeal = await crmApi.updateDealStage(activeDeal.id, targetStage.id);
+
+        // Immediately update React Query deals cache
+        queryClient.setQueryData(['deals', { leadId: id }], (old: any) => {
+          if (!old) return old;
+          const items = (old.items || old.data || []).map((d: any) =>
+            d.id === activeDeal.id
+              ? {
+                  ...d,
+                  stageId: targetStage.id,
+                  stageName: targetStage.name,
+                  stage: targetStage,
+                  status: updatedDeal?.status || d.status,
+                }
+              : d
+          );
+          return { ...old, items };
+        });
       } else {
         // Create initial deal in selected stage
-        await crmApi.createDeal({
+        const newDeal = await crmApi.createDeal({
           title: `${lead.fullName} - ${lead.serviceInterest || 'Opportunity'}`,
           value: 100000,
           stageId: targetStage.id,
           leadId: id,
           probability: targetStage.order * 15,
         });
+
+        queryClient.setQueryData(['deals', { leadId: id }], (old: any) => {
+          if (!old) return { items: [newDeal], total: 1 };
+          return { ...old, items: [newDeal, ...(old.items || [])], total: (old.total || 0) + 1 };
+        });
       }
 
-      // Log Touchpoint Activity for stage change
-      await crmApi.createActivity({
-        activityType: 'NOTE',
-        subject: `Sales Stage Changed to: ${targetStage.name}`,
-        description: `Lead moved to pipeline stage "${targetStage.name}"`,
-        leadId: id,
-        dealId: activeDeal?.id || undefined,
-      });
+      // If moved back to Step 1 (Qualification), immediately reflect NEW lead status
+      if (targetStage.order === 1) {
+        queryClient.setQueryData(['lead', id], (old: any) => {
+          if (!old) return old;
+          return { ...old, status: 'NEW' };
+        });
+      }
 
       await invalidateAll();
     } catch (err: any) {
@@ -623,19 +710,30 @@ export const LeadDetailPage: React.FC = () => {
   const handleTaskSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!id) return;
+
+    if (!taskForm.dueTime) {
+      setModalError('Please choose an allocated time for the task.');
+      return;
+    }
+
+    if (isTimeOver(taskForm.dueDate, taskForm.dueTime)) {
+      setModalError(
+        `Selected time (${formatDisplayTime(taskForm.dueTime)}) has already passed today. Please select a valid future time after ${getCurrentFormattedTime()}.`
+      );
+      return;
+    }
+
     setModalError(null);
     setIsSubmitting(true);
 
     try {
-      const fullDueDate = taskForm.dueDate
-        ? new Date(`${taskForm.dueDate}T${taskForm.dueTime || '10:00'}:00`).toISOString()
-        : new Date().toISOString();
+      const scheduledDate = parseTimeToDate(taskForm.dueDate, taskForm.dueTime);
 
       await crmApi.createTask({
         title: taskForm.title.trim(),
         description: taskForm.description.trim() || undefined,
         taskType: taskForm.taskType,
-        dueDate: fullDueDate,
+        dueDate: scheduledDate.toISOString(),
         priority: taskForm.priority,
         leadId: id,
         dealId: activeDeal?.id || undefined,
@@ -643,12 +741,13 @@ export const LeadDetailPage: React.FC = () => {
 
       await invalidateAll();
       setIsTaskModalOpen(false);
+      const init = getInitialScheduleDateTime();
       setTaskForm({
         title: '',
         description: '',
         taskType: 'CALL',
-        dueDate: '',
-        dueTime: '10:00',
+        dueDate: init.dueDate,
+        dueTime: '',
         priority: 'MEDIUM',
       });
     } catch (err: any) {
@@ -744,7 +843,8 @@ export const LeadDetailPage: React.FC = () => {
   };
 
   // Calculate Active Step index in Master Sales Journey
-  const currentStageOrder = activeDeal?.stage?.order ?? (lead?.status === 'CONVERTED' ? 5 : 1);
+  const currentStage = stages.find((s: any) => s.id === activeDeal?.stageId);
+  const currentStageOrder = currentStage?.order ?? activeDeal?.stage?.order ?? (lead?.status === 'CONVERTED' ? 6 : 1);
 
   if (isLeadLoading) {
     return (
@@ -972,10 +1072,7 @@ export const LeadDetailPage: React.FC = () => {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              setModalError(null);
-              setIsTaskModalOpen(true);
-            }}
+            onClick={handleOpenTaskModal}
             className="h-8 text-xs cursor-pointer border-border hover:border-amber-500 hover:text-amber-600"
           >
             <CheckSquare className="mr-1.5 h-3.5 w-3.5 text-amber-600" /> Follow-Up Task
@@ -1535,10 +1632,7 @@ export const LeadDetailPage: React.FC = () => {
               </h3>
               <Button
                 size="sm"
-                onClick={() => {
-                  setModalError(null);
-                  setIsTaskModalOpen(true);
-                }}
+                onClick={handleOpenTaskModal}
                 className="h-7 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
               >
                 <PlusCircle className="mr-1 h-3 w-3" /> Add Task / Call
@@ -1642,7 +1736,7 @@ export const LeadDetailPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Company Name</label>
                 <input
@@ -1666,19 +1760,57 @@ export const LeadDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">
-                  Phone Number <span className="text-red-500">*</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-caption text-txt-secondary block font-medium">
+                    Phone Number <span className="text-red-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-txt-muted tabular-nums">
+                    {editForm.phone.length}/10 digits
+                  </span>
+                </div>
                 <input
                   type="tel"
                   required
                   value={editForm.phone}
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 10);
+                    setEditForm({ ...editForm, phone: cleaned });
+                  }}
+                  maxLength={10}
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  title="Phone number must be exactly 10 digits"
+                  placeholder="e.g. 9876543210 (10 digits)"
                   disabled={isSubmitting}
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className={`w-full h-8 rounded-input border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 ${
+                    editDuplicateLead
+                      ? 'border-red-500 focus:ring-red-500'
+                      : editForm.phone.length === 10
+                      ? 'border-emerald-500 focus:ring-emerald-500'
+                      : 'border-border focus:ring-primary'
+                  }`}
                 />
+                <div className="text-[11px] pt-0.5">
+                  {editDuplicateLead ? (
+                    <span className="text-red-500 font-medium flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3 inline shrink-0" />
+                      Already used by {editDuplicateLead.fullName}
+                    </span>
+                  ) : editForm.phone.length > 0 && editForm.phone.length < 10 ? (
+                    <span className="text-amber-600 font-medium">
+                      Only 10 digits allowed ({editForm.phone.length}/10 entered)
+                    </span>
+                  ) : editForm.phone.length === 10 ? (
+                    <span className="text-emerald-600 font-medium flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3 inline shrink-0" />
+                      Valid 10-digit number
+                    </span>
+                  ) : (
+                    <span className="text-txt-muted">Only 10 digits allowed (no symbols)</span>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-1">
@@ -1693,7 +1825,7 @@ export const LeadDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Lead Source</label>
                 <select
@@ -1727,17 +1859,18 @@ export const LeadDetailPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-caption text-txt-secondary block font-medium">Service Interest</label>
-              <input
-                type="text"
+              <label className="text-caption text-txt-secondary block font-medium">
+                Category / Service Interest <span className="text-red-500">*</span>
+              </label>
+              <CategorySelect
                 value={editForm.serviceInterest}
-                onChange={(e) => setEditForm({ ...editForm, serviceInterest: e.target.value })}
+                onChange={(val) => setEditForm({ ...editForm, serviceInterest: val })}
                 disabled={isSubmitting}
-                className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                required
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">SLA Priority</label>
                 <select
@@ -1771,14 +1904,14 @@ export const LeadDetailPage: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2 sm:gap-0">
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => setIsEditModalOpen(false)}
                 disabled={isSubmitting}
-                className="h-8 text-xs cursor-pointer"
+                className="h-8 text-xs cursor-pointer w-full sm:w-auto"
               >
                 Cancel
               </Button>
@@ -1786,7 +1919,7 @@ export const LeadDetailPage: React.FC = () => {
                 type="submit"
                 size="sm"
                 disabled={isSubmitting}
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer"
+                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer w-full sm:w-auto"
               >
                 {isSubmitting ? 'Saving...' : 'Save Changes'}
               </Button>
@@ -2314,23 +2447,117 @@ export const LeadDetailPage: React.FC = () => {
                 <input
                   type="date"
                   required
+                  min={getLocalDateString()}
                   value={taskForm.dueDate}
-                  onChange={(e) => setTaskForm({ ...taskForm, dueDate: e.target.value })}
+                  onChange={(e) => handleTaskDueDateChange(e.target.value)}
                   disabled={isSubmitting}
                   className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary cursor-pointer"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-caption text-txt-secondary block font-medium">Due Time</label>
+                <div className="flex items-center justify-between">
+                  <label className="text-caption text-txt-secondary block font-medium">
+                    Due Time <span className="text-red-500">*</span>
+                  </label>
+                  {isTimeOver(taskForm.dueDate, taskForm.dueTime) && (
+                    <span className="text-[10px] text-red-600 font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                      Time Over
+                    </span>
+                  )}
+                </div>
                 <input
                   type="time"
+                  required
                   value={taskForm.dueTime}
-                  onChange={(e) => setTaskForm({ ...taskForm, dueTime: e.target.value })}
+                  onChange={(e) => {
+                    setTaskForm({ ...taskForm, dueTime: e.target.value });
+                    if (modalError) setModalError(null);
+                  }}
                   disabled={isSubmitting}
-                  className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary cursor-pointer"
+                  className={cn(
+                    'w-full h-8 rounded-input border bg-white px-2 text-xs text-txt-primary cursor-pointer',
+                    isTimeOver(taskForm.dueDate, taskForm.dueTime)
+                      ? 'border-red-500 text-red-600 focus:ring-red-400 bg-red-50/30'
+                      : 'border-border'
+                  )}
                 />
               </div>
+            </div>
+
+            {/* Overtime warning message */}
+            {isTimeOver(taskForm.dueDate, taskForm.dueTime) && (
+              <div className="rounded-md bg-red-50 border border-red-200 p-2 text-[11px] text-red-600 leading-tight flex items-start gap-1.5 animate-in fade-in duration-150">
+                <span className="text-sm leading-none shrink-0">⚠️</span>
+                <div>
+                  <span className="font-semibold">Time Over: </span>
+                  {taskForm.dueTime ? formatDisplayTime(taskForm.dueTime) : 'Selected time'} has already passed today. Please select a valid future time after <span className="font-bold underline">{getCurrentFormattedTime()}</span>.
+                </div>
+              </div>
+            )}
+
+            {/* Quick time suggestion buttons */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <span className="text-[10px] text-txt-muted font-medium">Quick suggest:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date(Date.now() + 30 * 60000);
+                  const hh = String(now.getHours()).padStart(2, '0');
+                  const mm = String(now.getMinutes()).padStart(2, '0');
+                  setTaskForm({ ...taskForm, dueTime: `${hh}:${mm}` });
+                  if (modalError) setModalError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+              >
+                +30 mins
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date(Date.now() + 60 * 60000);
+                  const hh = String(now.getHours()).padStart(2, '0');
+                  const mm = String(now.getMinutes()).padStart(2, '0');
+                  setTaskForm({ ...taskForm, dueTime: `${hh}:${mm}` });
+                  if (modalError) setModalError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+              >
+                +1 hour
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = new Date(Date.now() + 120 * 60000);
+                  const hh = String(now.getHours()).padStart(2, '0');
+                  const mm = String(now.getMinutes()).padStart(2, '0');
+                  setTaskForm({ ...taskForm, dueTime: `${hh}:${mm}` });
+                  if (modalError) setModalError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors"
+              >
+                +2 hours
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  const yyyy = tomorrow.getFullYear();
+                  const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+                  const dd = String(tomorrow.getDate()).padStart(2, '0');
+                  setTaskForm({
+                    ...taskForm,
+                    dueDate: `${yyyy}-${mm}-${dd}`,
+                    dueTime: '10:00',
+                  });
+                  if (modalError) setModalError(null);
+                }}
+                className="px-2 py-0.5 text-[10px] bg-blue-50 hover:bg-blue-100 text-blue-700 rounded transition-colors"
+              >
+                Tomorrow 10:00 AM
+              </button>
             </div>
 
             <div className="space-y-1">

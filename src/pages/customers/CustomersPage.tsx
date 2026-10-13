@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PageHeader } from '@/components/common/PageHeader';
 import { FilterPills, FilterOption } from '@/components/common/FilterPills';
@@ -21,6 +22,7 @@ import {
 import { crmApi } from '@/lib/api';
 import { CustomerItem, CustomerStatus } from '@/types/crm';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { CategorySelect } from '@/components/leads/CategorySelect';
 import {
   PlusCircle,
   Building2,
@@ -39,6 +41,7 @@ import {
 } from 'lucide-react';
 
 export const CustomersPage: React.FC = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -381,14 +384,17 @@ export const CustomersPage: React.FC = () => {
           subtextVariant="neutral"
           icon={Building2}
           iconVariant="neutral"
+          onClick={() => setStatusFilter(statusFilter === 'ACTIVE' ? 'ALL' : 'ACTIVE')}
+          className={statusFilter === 'ACTIVE' ? 'border-[#57B71B] ring-1 ring-[#57B71B]/30' : ''}
         />
         <MetricCard
-          label="Realized Revenue"
-          value="—"
-          subtext="Neutral state — not tracked in customer profile"
-          subtextVariant="neutral"
+          label="Invoices & Realized Revenue"
+          value="Go to In-Voice"
+          subtext="Click to view issued invoices and customer balances"
+          subtextVariant="info"
           icon={TrendingUp}
-          iconVariant="neutral"
+          iconVariant="info"
+          onClick={() => navigate('/in-voice')}
         />
       </div>
 
@@ -962,13 +968,12 @@ export const CustomersPage: React.FC = () => {
 
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                  Purchased Services / Notes
+                  Purchased Services / Category
                 </label>
-                <Input
+                <CategorySelect
                   value={formState.notes}
-                  onChange={(e) => setFormState({ ...formState, notes: e.target.value })}
-                  placeholder="e.g. Custom Web App SLA"
-                  className="h-8 text-xs"
+                  onChange={(val) => setFormState({ ...formState, notes: val })}
+                  placeholder="Select or add category..."
                 />
               </div>
             </div>
@@ -1104,12 +1109,12 @@ export const CustomersPage: React.FC = () => {
 
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
-                  Services / Notes
+                  Services / Category
                 </label>
-                <Input
+                <CategorySelect
                   value={editFormState.notes}
-                  onChange={(e) => setEditFormState({ ...editFormState, notes: e.target.value })}
-                  className="h-8 text-xs"
+                  onChange={(val) => setEditFormState({ ...editFormState, notes: val })}
+                  placeholder="Select or add category..."
                 />
               </div>
             </div>

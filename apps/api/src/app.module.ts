@@ -21,6 +21,7 @@ import { ActivitiesModule } from './modules/activities/activities.module';
 import { MeetingsModule } from './modules/meetings/meetings.module';
 import { ProposalsModule } from './modules/proposals/proposals.module';
 import { CustomersModule } from './modules/customers/customers.module';
+import { InvoicesModule } from './modules/invoices/invoices.module';
 
 import { RequestIdInterceptor } from './common/interceptors/request-id.interceptor';
 import { TransformResponseInterceptor } from './common/interceptors/transform-response.interceptor';
@@ -51,6 +52,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard';
     MeetingsModule,
     ProposalsModule,
     CustomersModule,
+    InvoicesModule,
   ],
   providers: [
     {
