@@ -1,6 +1,7 @@
 import {
   Injectable,
   UnauthorizedException,
+  NotFoundException,
   Logger,
   ForbiddenException,
 } from '@nestjs/common';
@@ -9,6 +10,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../database/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { PermissionsService } from '../permissions/permissions.service';
+import { MailService } from '../mail/mail.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto, RefreshResponseDto } from './dto/auth-response.dto';
@@ -25,6 +27,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly auditService: AuditService,
     private readonly permissionsService: PermissionsService,
+    private readonly mailService: MailService,
   ) {}
 
   private hashToken(rawToken: string): string {
@@ -361,18 +364,28 @@ export class AuthService {
 
   async forgotPassword(email: string) {
     const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      throw new NotFoundException('No account found with this email address');
+    }
+
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     this.passwordResetCodes.set(normalizedEmail, {
       code,
       expiresAt: Date.now() + 15 * 60 * 1000,
     });
 
-    this.logger.log(`Password reset code generated for ${normalizedEmail}: ${code}`);
+    // Send the verification code to the user's actual email address
+    await this.mailService.sendPasswordResetOtp(normalizedEmail, code);
 
+    // SECURE: Do NOT return the verification code in the HTTP response
     return {
       success: true,
-      code,
-      message: `Verification code sent to ${normalizedEmail}`,
+      message: `A 6-digit verification code has been sent to ${normalizedEmail}. Please check your email inbox.`,
     };
   }
 

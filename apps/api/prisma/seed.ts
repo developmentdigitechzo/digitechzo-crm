@@ -110,7 +110,8 @@ export async function seedDatabase() {
 
   // Manager permissions
   const managerPerms = [
-    'users:read', 'roles:read', 'audit_logs:read', 'settings:read',
+    'users:read', 'users:create', 'users:update', 'users:delete',
+    'roles:read', 'audit_logs:read', 'settings:read',
     'leads:read', 'leads:create', 'leads:update',
     'deals:read', 'deals:create', 'deals:update',
     'tasks:read', 'tasks:create', 'tasks:update',
@@ -135,6 +136,7 @@ export async function seedDatabase() {
 
   // BDE Sales permissions
   const bdePerms = [
+    'users:read', 'users:create', 'users:update', 'users:delete',
     'leads:read', 'leads:create', 'leads:update',
     'deals:read', 'deals:create', 'deals:update',
     'tasks:read', 'tasks:create', 'tasks:update',

@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { crmApi } from '@/lib/api';
 import { Lead, LeadSource, TaskPriority, TaskActionType } from '@/types/crm';
-import { formatDate } from '@/lib/utils';
+import { formatDate, cn } from '@/lib/utils';
 import { CategorySelect, LEAD_CATEGORIES } from '@/components/leads/CategorySelect';
 import {
   PlusCircle,
@@ -91,7 +91,8 @@ export const LeadsPage: React.FC = () => {
     priority: 'MEDIUM' as TaskPriority,
     temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
     serviceInterest: LEAD_CATEGORIES[0] as string,
-    ownerName: 'DigiTechzo Administrator',
+    ownerId: '',
+    ownerName: '',
     nextActionDate: '',
     nextActionTime: '',
     nextActionType: 'CALL' as TaskActionType,
@@ -111,6 +112,8 @@ export const LeadsPage: React.FC = () => {
     serviceInterest: '',
     priority: 'MEDIUM' as TaskPriority,
     temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
+    ownerId: '',
+    ownerName: '',
   });
 
   // Delete lead modal state
@@ -125,6 +128,18 @@ export const LeadsPage: React.FC = () => {
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
   const [importResult, setImportResult] = useState<{ success: number; failed: number; errors: string[] } | null>(null);
 
+  // Recently created lead highlight & banner state
+  const [recentlyCreatedLeadId, setRecentlyCreatedLeadId] = useState<string | null>(null);
+  const [createdSuccessBanner, setCreatedSuccessBanner] = useState<{ id: string; name: string } | null>(null);
+
+  useEffect(() => {
+    if (!recentlyCreatedLeadId) return;
+    const timer = setTimeout(() => {
+      setRecentlyCreatedLeadId(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [recentlyCreatedLeadId]);
+
   // Real Backend Data Query
   const {
     data: leadsResponse,
@@ -132,6 +147,7 @@ export const LeadsPage: React.FC = () => {
   } = useQuery({
     queryKey: ['leads'],
     queryFn: () => crmApi.getLeads({ limit: 100 }),
+    staleTime: 30000,
   });
 
   const rawLeads: any[] = leadsResponse?.items || leadsResponse?.data || [];
@@ -189,15 +205,29 @@ export const LeadsPage: React.FC = () => {
     ];
   }, [leads]);
 
+  // Active Team Members Query for Owner Assignment
+  const { data: usersResponse } = useQuery({
+    queryKey: ['team-users'],
+    queryFn: () => crmApi.getUsers({ limit: 100 }),
+    staleTime: 60000,
+  });
+
+  const teamMembers = useMemo(() => {
+    const raw: any[] = usersResponse?.data || [];
+    return raw.filter((u: any) => u.status === 'ACTIVE');
+  }, [usersResponse]);
+
   // Unique sources and owners
   const uniqueSources = useMemo(() => {
     return Array.from(new Set(leads.map((l) => l.source)));
   }, [leads]);
 
   const uniqueOwners = useMemo(() => {
-    const owners = Array.from(new Set(leads.map((l) => l.ownerName).filter(Boolean)));
+    const fromTeam = teamMembers.map((u: any) => u.name).filter(Boolean);
+    const fromLeads = leads.map((l) => l.ownerName).filter(Boolean);
+    const owners = Array.from(new Set([...fromTeam, ...fromLeads]));
     return owners.length > 0 ? owners : ['DigiTechzo Administrator'];
-  }, [leads]);
+  }, [teamMembers, leads]);
 
   const uniqueCategories = useMemo(() => {
     const fromLeads = Array.from(new Set(leads.map((l) => l.serviceInterest).filter(Boolean)));
@@ -307,6 +337,7 @@ export const LeadsPage: React.FC = () => {
         priority: newLeadForm.priority || 'MEDIUM',
         temperature: newLeadForm.temperature ? (newLeadForm.temperature as 'HOT' | 'WARM' | 'COLD') : undefined,
         serviceInterest: newLeadForm.serviceInterest.trim() || LEAD_CATEGORIES[0],
+        ownerId: newLeadForm.ownerId || undefined,
         nextActionDueAt: newLeadForm.nextActionDate
           ? new Date(`${newLeadForm.nextActionDate}T${newLeadForm.nextActionTime || '10:00'}:00`).toISOString()
           : undefined,
@@ -316,7 +347,38 @@ export const LeadsPage: React.FC = () => {
           : undefined,
       });
 
-      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      // 1. Instant optimistic update to TanStack query cache (0ms delay)
+      queryClient.setQueryData(['leads'], (old: any) => {
+        if (!old) {
+          return { items: [created], data: [created], total: 1, page: 1, limit: 100, totalPages: 1 };
+        }
+        const prevItems = old.items || old.data || [];
+        const nextItems = [created, ...prevItems.filter((i: any) => i.id !== created.id)];
+        return {
+          ...old,
+          items: nextItems,
+          data: nextItems,
+          total: (old.total ?? prevItems.length) + 1,
+        };
+      });
+
+      // Also prime individual lead query cache for instant detail viewing
+      if (created?.id) {
+        queryClient.setQueryData(['leads', created.id], created);
+      }
+
+      // 2. Clear filters if they would hide the new lead from the list
+      if (statusFilter !== 'ALL') {
+        setStatusFilter('ALL');
+        searchParams.delete('status');
+        searchParams.delete('filter');
+        setSearchParams(searchParams);
+      }
+      if (searchQuery.trim()) {
+        setSearchQuery('');
+      }
+
+      // 3. Close modal & reset form
       setIsAddModalOpen(false);
       setNewLeadForm({
         fullName: '',
@@ -328,17 +390,25 @@ export const LeadsPage: React.FC = () => {
         priority: 'MEDIUM' as TaskPriority,
         temperature: '' as '' | 'HOT' | 'WARM' | 'COLD',
         serviceInterest: LEAD_CATEGORIES[0],
-        ownerName: 'DigiTechzo Administrator',
+        ownerId: '',
+        ownerName: '',
         nextActionDate: '',
         nextActionTime: '',
         nextActionType: 'CALL' as TaskActionType,
         nextActionPurpose: '',
       });
 
-      // Navigate to dedicated Lead Details Page immediately
+      // 4. Highlight new lead and show notification banner
       if (created?.id) {
-        navigate(`/leads/${created.id}`);
+        setRecentlyCreatedLeadId(created.id);
+        setCreatedSuccessBanner({
+          id: created.id,
+          name: created.fullName,
+        });
       }
+
+      // 5. Background cache synchronization (non-blocking)
+      queryClient.invalidateQueries({ queryKey: ['leads'], refetchType: 'active' });
     } catch (err: any) {
       setCreateError(
         err?.message || 'Failed to create lead. Please verify the entered information.'
@@ -361,6 +431,8 @@ export const LeadsPage: React.FC = () => {
       serviceInterest: lead.serviceInterest,
       priority: (lead as any).priority || 'MEDIUM',
       temperature: (lead as any).temperature || '',
+      ownerId: lead.ownerId || '',
+      ownerName: lead.ownerName || '',
     });
     setEditError(null);
   };
@@ -395,7 +467,7 @@ export const LeadsPage: React.FC = () => {
         ? editForm.email.trim().toLowerCase()
         : undefined;
 
-      await crmApi.updateLead(editingLead.id, {
+      let updated = await crmApi.updateLead(editingLead.id, {
         fullName: editForm.fullName.trim(),
         companyName: editForm.companyName.trim() || undefined,
         title: editForm.title.trim() || undefined,
@@ -406,8 +478,29 @@ export const LeadsPage: React.FC = () => {
         temperature: editForm.temperature ? (editForm.temperature as 'HOT' | 'WARM' | 'COLD') : undefined,
       });
 
-      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+      // If owner was modified, reassign the lead via backend API
+      if (editForm.ownerId && editForm.ownerId !== editingLead.ownerId) {
+        try {
+          const reassigned = await crmApi.assignLead(editingLead.id, editForm.ownerId);
+          updated = { ...updated, ...reassigned };
+        } catch (assignErr: any) {
+          console.warn('Lead reassign warning:', assignErr?.message);
+        }
+      }
+
+      // Instant optimistic update in TanStack cache
+      queryClient.setQueryData(['leads'], (old: any) => {
+        if (!old) return old;
+        const prevItems = old.items || old.data || [];
+        const nextItems = prevItems.map((item: any) =>
+          item.id === editingLead.id ? { ...item, ...updated } : item
+        );
+        return { ...old, items: nextItems, data: nextItems };
+      });
+      queryClient.setQueryData(['leads', editingLead.id], (old: any) => ({ ...old, ...updated }));
+
       setEditingLead(null);
+      queryClient.invalidateQueries({ queryKey: ['leads'], refetchType: 'active' });
     } catch (err: any) {
       setEditError(err?.message || 'Failed to update lead. Please try again.');
     } finally {
@@ -422,8 +515,22 @@ export const LeadsPage: React.FC = () => {
     setDeleteError(null);
     try {
       await crmApi.deleteLead(deletingLead.id);
-      await queryClient.invalidateQueries({ queryKey: ['leads'] });
+
+      // Instant optimistic update in TanStack cache
+      queryClient.setQueryData(['leads'], (old: any) => {
+        if (!old) return old;
+        const prevItems = old.items || old.data || [];
+        const nextItems = prevItems.filter((item: any) => item.id !== deletingLead.id);
+        return {
+          ...old,
+          items: nextItems,
+          data: nextItems,
+          total: Math.max(0, (old.total ?? prevItems.length) - 1),
+        };
+      });
+
       setDeletingLead(null);
+      queryClient.invalidateQueries({ queryKey: ['leads'], refetchType: 'active' });
     } catch (err: any) {
       setDeleteError(err?.message || 'Failed to delete lead.');
     } finally {
@@ -722,6 +829,33 @@ export const LeadsPage: React.FC = () => {
         }
       />
 
+      {/* Instant Lead Creation Notification Banner */}
+      {createdSuccessBanner && (
+        <div className="p-3 rounded-card bg-emerald-50 border border-emerald-200 flex items-center justify-between text-xs text-emerald-900 shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-[#57B71B] shrink-0" />
+            <span>
+              Lead <strong className="font-semibold text-emerald-950">{createdSuccessBanner.name}</strong> created and added to the top of your list!
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate(`/leads/${createdSuccessBanner.id}`)}
+              className="font-semibold text-[#57B71B] hover:text-[#469815] underline flex items-center gap-1 cursor-pointer"
+            >
+              View 360° Profile <ExternalLink className="h-3 w-3" />
+            </button>
+            <button
+              onClick={() => setCreatedSuccessBanner(null)}
+              className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+              aria-label="Dismiss banner"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Interactive Lead Metric Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <MetricCard
@@ -877,26 +1011,38 @@ export const LeadsPage: React.FC = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredLeads.map((lead) => (
-                  <TableRow
-                    key={lead.id}
-                    className="cursor-pointer group hover:bg-slate-50/80 transition-colors"
-                    onClick={() => navigate(`/leads/${lead.id}`)}
-                  >
-                    {/* 1. Lead / Company */}
-                    <TableCell>
-                      <div className="space-y-0.5">
-                        <span className="font-semibold text-xs text-txt-primary block leading-tight group-hover:text-primary transition-colors">
-                          {lead.fullName}
-                        </span>
-                        <span className="text-[11px] text-txt-muted flex items-center gap-1">
-                          <Building className="h-3 w-3 text-txt-muted shrink-0" />
-                          <span className="truncate max-w-[140px]">
-                            {lead.companyName || 'Individual'}
+                {filteredLeads.map((lead) => {
+                  const isRecentlyCreated = recentlyCreatedLeadId === lead.id;
+                  return (
+                    <TableRow
+                      key={lead.id}
+                      className={cn(
+                        "cursor-pointer group hover:bg-slate-50/80 transition-all duration-300",
+                        isRecentlyCreated && "bg-emerald-50/80 ring-1 ring-[#57B71B]/30"
+                      )}
+                      onClick={() => navigate(`/leads/${lead.id}`)}
+                    >
+                      {/* 1. Lead / Company */}
+                      <TableCell>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-xs text-txt-primary block leading-tight group-hover:text-primary transition-colors">
+                              {lead.fullName}
+                            </span>
+                            {isRecentlyCreated && (
+                              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#57B71B] text-white">
+                                NEW
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] text-txt-muted flex items-center gap-1">
+                            <Building className="h-3 w-3 text-txt-muted shrink-0" />
+                            <span className="truncate max-w-[140px]">
+                              {lead.companyName || 'Individual'}
+                            </span>
                           </span>
-                        </span>
-                      </div>
-                    </TableCell>
+                        </div>
+                      </TableCell>
 
                     {/* 2. Contact */}
                     <TableCell>
@@ -945,7 +1091,7 @@ export const LeadsPage: React.FC = () => {
                           <AvatarFallback className="bg-primary-soft text-primary text-[9px] font-bold">
                             {lead.ownerName
                               .split(' ')
-                              .map((n) => n[0])
+                              .map((n: string) => n[0])
                               .join('')}
                           </AvatarFallback>
                         </Avatar>
@@ -1007,8 +1153,9 @@ export const LeadsPage: React.FC = () => {
                       />
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
+                );
+              })}
+            </TableBody>
             </Table>
           </div>
 
@@ -1174,14 +1321,23 @@ export const LeadsPage: React.FC = () => {
               <div className="space-y-1">
                 <label className="text-caption text-txt-secondary block font-medium">Assign Owner</label>
                 <select
-                  value={newLeadForm.ownerName}
-                  onChange={(e) => setNewLeadForm({ ...newLeadForm, ownerName: e.target.value })}
+                  value={newLeadForm.ownerId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const member = teamMembers.find((m: any) => m.id === selectedId);
+                    setNewLeadForm({
+                      ...newLeadForm,
+                      ownerId: selectedId,
+                      ownerName: member ? member.name : '',
+                    });
+                  }}
                   disabled={isSubmitting}
                   className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
                 >
-                  {uniqueOwners.map((own) => (
-                    <option key={own} value={own}>
-                      {own}
+                  <option value="">Default (Logged-in Account Owner)</option>
+                  {teamMembers.map((member: any) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name} {member.email ? `(${member.email})` : ''}
                     </option>
                   ))}
                 </select>
@@ -1508,6 +1664,31 @@ export const LeadsPage: React.FC = () => {
                     <option value="COLD">COLD</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-caption text-txt-secondary block font-medium">Assign Owner</label>
+                <select
+                  value={editForm.ownerId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const member = teamMembers.find((m: any) => m.id === selectedId);
+                    setEditForm({
+                      ...editForm,
+                      ownerId: selectedId,
+                      ownerName: member ? member.name : '',
+                    });
+                  }}
+                  disabled={isEditSubmitting}
+                  className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+                >
+                  <option value="">Keep Existing Owner</option>
+                  {teamMembers.map((member: any) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name} {member.email ? `(${member.email})` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <DialogFooter className="pt-2 flex flex-col-reverse sm:flex-row gap-2 sm:gap-0">

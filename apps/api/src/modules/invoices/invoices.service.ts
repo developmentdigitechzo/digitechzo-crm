@@ -234,11 +234,51 @@ export class InvoicesService {
       }
     }
 
+    // Resolve creatorId, ensuring valid relation within the organization
+    let creatorId = user.userId;
+    if (dto.creatorId) {
+      const creatorExists = await this.prisma.user.findFirst({
+        where: { id: dto.creatorId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (creatorExists) {
+        creatorId = creatorExists.id;
+      }
+    }
+
+    // Resolve leadId safely
+    let leadId: string | null = null;
+    if (dto.leadId) {
+      const leadExists = await this.prisma.lead.findFirst({
+        where: { id: dto.leadId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (leadExists) {
+        leadId = leadExists.id;
+      }
+    }
+
+    // Resolve customerId safely
+    let customerId: string | null = null;
+    if (dto.customerId) {
+      const customerExists = await this.prisma.customer.findFirst({
+        where: { id: dto.customerId, organizationId: user.organizationId },
+        select: { id: true },
+      });
+      if (customerExists) {
+        customerId = customerExists.id;
+      }
+    }
+
+    const rawData = dto.rawData
+      ? { ...dto.rawData, ...(dto.notesHeading ? { notesHeading: dto.notesHeading } : {}) }
+      : (dto.notesHeading ? { notesHeading: dto.notesHeading } : undefined);
+
     const created = await this.prisma.$transaction(async (tx) => {
       const inv = await tx.invoice.create({
         data: {
           organizationId: user.organizationId,
-          creatorId: user.userId,
+          creatorId,
           invoiceNumber,
           poNumber: dto.poNumber,
           clientName: dto.clientName,
@@ -247,8 +287,8 @@ export class InvoicesService {
           clientPhone: dto.clientPhone,
           clientAddress: dto.clientAddress,
           clientTaxId: dto.clientTaxId,
-          leadId: dto.leadId,
-          customerId: dto.customerId,
+          leadId,
+          customerId,
           issueDate: dto.issueDate ? new Date(dto.issueDate) : new Date(),
           dueDate: new Date(dto.dueDate),
           paymentTermsDays: dto.paymentTermsDays || '15',
@@ -273,7 +313,7 @@ export class InvoicesService {
           customColumns: dto.customColumns as any,
           columnConfig: dto.columnConfig as any,
           activeTheme: dto.activeTheme as any,
-          rawData: dto.rawData as any,
+          rawData: rawData as any,
           items: {
             create: (dto.items || []).map((it, idx) => ({
               description: it.description,
@@ -360,8 +400,28 @@ export class InvoicesService {
       if (dto.clientPhone !== undefined) updateData.clientPhone = dto.clientPhone;
       if (dto.clientAddress !== undefined) updateData.clientAddress = dto.clientAddress;
       if (dto.clientTaxId !== undefined) updateData.clientTaxId = dto.clientTaxId;
-      if (dto.leadId !== undefined) updateData.lead = dto.leadId ? { connect: { id: dto.leadId } } : { disconnect: true };
-      if (dto.customerId !== undefined) updateData.customer = dto.customerId ? { connect: { id: dto.customerId } } : { disconnect: true };
+      if (dto.leadId !== undefined) {
+        if (dto.leadId) {
+          const leadExists = await this.prisma.lead.findFirst({
+            where: { id: dto.leadId, organizationId: user.organizationId },
+            select: { id: true },
+          });
+          updateData.lead = leadExists ? { connect: { id: leadExists.id } } : { disconnect: true };
+        } else {
+          updateData.lead = { disconnect: true };
+        }
+      }
+      if (dto.customerId !== undefined) {
+        if (dto.customerId) {
+          const customerExists = await this.prisma.customer.findFirst({
+            where: { id: dto.customerId, organizationId: user.organizationId },
+            select: { id: true },
+          });
+          updateData.customer = customerExists ? { connect: { id: customerExists.id } } : { disconnect: true };
+        } else {
+          updateData.customer = { disconnect: true };
+        }
+      }
       if (dto.issueDate !== undefined) updateData.issueDate = new Date(dto.issueDate);
       if (dto.dueDate !== undefined) updateData.dueDate = new Date(dto.dueDate);
       if (dto.paymentTermsDays !== undefined) updateData.paymentTermsDays = dto.paymentTermsDays;
@@ -386,7 +446,17 @@ export class InvoicesService {
       if (dto.customColumns !== undefined) updateData.customColumns = dto.customColumns as any;
       if (dto.columnConfig !== undefined) updateData.columnConfig = dto.columnConfig as any;
       if (dto.activeTheme !== undefined) updateData.activeTheme = dto.activeTheme as any;
-      if (dto.rawData !== undefined) updateData.rawData = dto.rawData as any;
+      if (dto.rawData !== undefined) {
+        updateData.rawData = {
+          ...dto.rawData,
+          ...(dto.notesHeading ? { notesHeading: dto.notesHeading } : {}),
+        } as any;
+      } else if (dto.notesHeading !== undefined) {
+        updateData.rawData = {
+          ...((existing.rawData as object) || {}),
+          notesHeading: dto.notesHeading,
+        } as any;
+      }
 
       const inv = await tx.invoice.update({
         where: { id },

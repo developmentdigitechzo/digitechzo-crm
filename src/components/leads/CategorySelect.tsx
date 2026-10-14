@@ -30,6 +30,7 @@ interface CategorySelectProps {
   id?: string;
   extraCategories?: string[];
   className?: string;
+  allowAddNew?: boolean;
 }
 
 export const CategorySelect: React.FC<CategorySelectProps> = ({
@@ -41,6 +42,7 @@ export const CategorySelect: React.FC<CategorySelectProps> = ({
   id,
   extraCategories = [],
   className = '',
+  allowAddNew = true,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchFilter, setSearchFilter] = useState('');
@@ -245,76 +247,78 @@ export const CategorySelect: React.FC<CategorySelectProps> = ({
             )}
           </div>
 
-          {/* Add New Category / Other Section */}
-          <div className="border-t border-border/70 p-1.5 bg-slate-50/80">
-            {isAddingNew ? (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <input
-                    ref={newCatInputRef}
-                    type="text"
-                    value={newCategoryInput}
-                    onChange={(e) => setNewCategoryInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddNewCategory();
-                      }
-                      if (e.key === 'Escape') {
+          {/* Add New Category / Other Section - only when allowAddNew is true */}
+          {allowAddNew && (
+            <div className="border-t border-border/70 p-1.5 bg-slate-50/80">
+              {isAddingNew ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      ref={newCatInputRef}
+                      type="text"
+                      value={newCategoryInput}
+                      onChange={(e) => setNewCategoryInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddNewCategory();
+                        }
+                        if (e.key === 'Escape') {
+                          setIsAddingNew(false);
+                        }
+                      }}
+                      placeholder="Enter new category name..."
+                      className="flex-1 h-7 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddNewCategory}
+                      disabled={!newCategoryInput.trim()}
+                      className="h-7 px-2.5 rounded-btn bg-[#57B71B] hover:bg-[#469815] text-white text-xs font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
                         setIsAddingNew(false);
-                      }
-                    }}
-                    placeholder="Enter new category name..."
-                    className="flex-1 h-7 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddNewCategory}
-                    disabled={!newCategoryInput.trim()}
-                    className="h-7 px-2.5 rounded-btn bg-[#57B71B] hover:bg-[#469815] text-white text-xs font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                  >
-                    Add
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsAddingNew(false);
-                      setNewCategoryInput('');
-                    }}
-                    className="h-7 px-2 text-xs text-txt-muted hover:text-txt-primary cursor-pointer shrink-0"
-                  >
-                    Cancel
-                  </button>
+                        setNewCategoryInput('');
+                      }}
+                      className="h-7 px-2 text-xs text-txt-muted hover:text-txt-primary cursor-pointer shrink-0"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-txt-muted block px-0.5">
+                    Press Enter to save and select immediately for leads & customers.
+                  </span>
                 </div>
-                <span className="text-[10px] text-txt-muted block px-0.5">
-                  Press Enter to save and select immediately for leads & customers.
-                </span>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAddingNew(true);
-                  if (searchFilter.trim() && !filteredCategories.includes(searchFilter.trim())) {
-                    setNewCategoryInput(searchFilter.trim());
-                  }
-                  setTimeout(() => {
-                    newCatInputRef.current?.focus();
-                  }, 50);
-                }}
-                className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 text-txt-secondary hover:text-txt-primary transition-colors cursor-pointer text-xs"
-              >
-                <div className="flex items-center gap-1.5 font-medium text-[#2563EB]">
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Other / Add New Category</span>
-                </div>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 text-txt-muted">
-                  Custom
-                </span>
-              </button>
-            )}
-          </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingNew(true);
+                    if (searchFilter.trim() && !filteredCategories.includes(searchFilter.trim())) {
+                      setNewCategoryInput(searchFilter.trim());
+                    }
+                    setTimeout(() => {
+                      newCatInputRef.current?.focus();
+                    }, 50);
+                  }}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 text-txt-secondary hover:text-txt-primary transition-colors cursor-pointer text-xs"
+                >
+                  <div className="flex items-center gap-1.5 font-medium text-[#2563EB]">
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Other / Add New Category</span>
+                  </div>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 text-txt-muted">
+                    Custom
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

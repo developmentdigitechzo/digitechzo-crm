@@ -65,6 +65,7 @@ export const CustomersPage: React.FC = () => {
     status: 'ACTIVE' as CustomerStatus,
     leadId: '',
     dealId: '',
+    category: '',
     notes: '',
   });
 
@@ -76,6 +77,7 @@ export const CustomersPage: React.FC = () => {
     contactEmail: '',
     contactPhone: '',
     status: 'ACTIVE' as CustomerStatus,
+    category: '',
     notes: '',
   });
 
@@ -253,12 +255,23 @@ export const CustomersPage: React.FC = () => {
   const handleAddCustomerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formState.companyName.trim() || !formState.contactName.trim() || !formState.contactEmail.trim() || !formState.contactPhone.trim()) {
-      setFormError('Please fill in all required fields.');
+      setFormError('Please fill in all required fields (Company Name, Contact Person, Email, Phone).');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formState.contactEmail.trim())) {
+      setFormError('Please enter a valid email address (e.g. name@company.com).');
       return;
     }
 
     setIsSubmitting(true);
     setFormError(null);
+
+    const combinedNotes = [
+      formState.category.trim() ? `Category: ${formState.category.trim()}` : '',
+      formState.notes.trim(),
+    ].filter(Boolean).join('\n\n') || undefined;
 
     try {
       await crmApi.createCustomer({
@@ -270,7 +283,7 @@ export const CustomersPage: React.FC = () => {
         status: formState.status,
         leadId: formState.leadId || undefined,
         dealId: formState.dealId || undefined,
-        notes: formState.notes.trim() || undefined,
+        notes: combinedNotes,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -286,6 +299,7 @@ export const CustomersPage: React.FC = () => {
         status: 'ACTIVE',
         leadId: '',
         dealId: '',
+        category: '',
         notes: '',
       });
     } catch (err: any) {
@@ -298,6 +312,15 @@ export const CustomersPage: React.FC = () => {
   // Edit Customer setup & submit handler
   const handleOpenEdit = (customer: CustomerItem) => {
     setEditingCustomer(customer);
+    let cat = '';
+    let remNotes = customer.notes || '';
+    if (remNotes.includes('Category: ')) {
+      const match = remNotes.match(/Category:\s*([^\n]+)/);
+      if (match) {
+        cat = match[1].trim();
+        remNotes = remNotes.replace(/Category:\s*[^\n]+(\n\n)?/, '').trim();
+      }
+    }
     setEditFormState({
       companyName: customer.companyName,
       contactName: customer.contactName,
@@ -305,7 +328,8 @@ export const CustomersPage: React.FC = () => {
       contactEmail: customer.email,
       contactPhone: customer.phone,
       status: customer.status,
-      notes: customer.notes || '',
+      category: cat,
+      notes: remNotes,
     });
     setFormError(null);
   };
@@ -314,8 +338,24 @@ export const CustomersPage: React.FC = () => {
     e.preventDefault();
     if (!editingCustomer) return;
 
+    if (!editFormState.companyName.trim() || !editFormState.contactName.trim() || !editFormState.contactEmail.trim() || !editFormState.contactPhone.trim()) {
+      setFormError('Please fill in all required fields.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(editFormState.contactEmail.trim())) {
+      setFormError('Please enter a valid email address.');
+      return;
+    }
+
     setIsSubmitting(true);
     setFormError(null);
+
+    const combinedNotes = [
+      editFormState.category.trim() ? `Category: ${editFormState.category.trim()}` : '',
+      editFormState.notes.trim(),
+    ].filter(Boolean).join('\n\n') || undefined;
 
     try {
       await crmApi.updateCustomer(editingCustomer.id, {
@@ -325,7 +365,7 @@ export const CustomersPage: React.FC = () => {
         email: editFormState.contactEmail.trim().toLowerCase(),
         phone: editFormState.contactPhone.trim(),
         status: editFormState.status,
-        notes: editFormState.notes.trim() || undefined,
+        notes: combinedNotes,
       });
 
       await queryClient.invalidateQueries({ queryKey: ['customers'] });
@@ -971,11 +1011,25 @@ export const CustomersPage: React.FC = () => {
                   Purchased Services / Category
                 </label>
                 <CategorySelect
-                  value={formState.notes}
-                  onChange={(val) => setFormState({ ...formState, notes: val })}
-                  placeholder="Select or add category..."
+                  value={formState.category}
+                  onChange={(val) => setFormState({ ...formState, category: val })}
+                  placeholder="Select category..."
+                  allowAddNew={false}
                 />
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                Notes & Additional Instructions
+              </label>
+              <textarea
+                rows={2}
+                value={formState.notes}
+                onChange={(e) => setFormState({ ...formState, notes: e.target.value })}
+                placeholder="Optional customer account notes, billing preferences, special terms..."
+                className="w-full rounded-input border border-border bg-white p-2 text-xs text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-1 focus:ring-[#57B71B] resize-none"
+              />
             </div>
 
             <DialogFooter className="pt-2 border-t border-border">
@@ -1112,11 +1166,25 @@ export const CustomersPage: React.FC = () => {
                   Services / Category
                 </label>
                 <CategorySelect
-                  value={editFormState.notes}
-                  onChange={(val) => setEditFormState({ ...editFormState, notes: val })}
-                  placeholder="Select or add category..."
+                  value={editFormState.category}
+                  onChange={(val) => setEditFormState({ ...editFormState, category: val })}
+                  placeholder="Select category..."
+                  allowAddNew={false}
                 />
               </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
+                Notes & Additional Instructions
+              </label>
+              <textarea
+                rows={2}
+                value={editFormState.notes}
+                onChange={(e) => setEditFormState({ ...editFormState, notes: e.target.value })}
+                placeholder="Optional customer account notes, billing requirements..."
+                className="w-full rounded-input border border-border bg-white p-2 text-xs text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-1 focus:ring-[#57B71B] resize-none"
+              />
             </div>
 
             <DialogFooter className="pt-2 border-t border-border">

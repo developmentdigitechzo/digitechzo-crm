@@ -5,6 +5,7 @@ import { AuthService } from '../src/modules/auth/auth.service';
 import { PrismaService } from '../src/database/prisma.service';
 import { AuditService } from '../src/modules/audit/audit.service';
 import { PermissionsService } from '../src/modules/permissions/permissions.service';
+import { MailService } from '../src/modules/mail/mail.service';
 import * as argon2 from '@node-rs/argon2';
 import * as crypto from 'crypto';
 
@@ -15,6 +16,7 @@ describe('AuthService (Authentication & Token Rotation)', () => {
   let configService: Partial<ConfigService>;
   let auditService: Partial<AuditService>;
   let permissionsService: Partial<PermissionsService>;
+  let mailService: Partial<MailService>;
 
   const mockUser = {
     id: 'user-uuid-1',
@@ -72,12 +74,17 @@ describe('AuthService (Authentication & Token Rotation)', () => {
       findByRole: jest.fn().mockResolvedValue(['users:read', 'users:create']),
     };
 
+    mailService = {
+      sendPasswordResetOtp: jest.fn().mockResolvedValue(true),
+    };
+
     authService = new AuthService(
       prisma as PrismaService,
       jwtService as JwtService,
       configService as ConfigService,
       auditService as AuditService,
       permissionsService as PermissionsService,
+      mailService as MailService,
     );
   });
 

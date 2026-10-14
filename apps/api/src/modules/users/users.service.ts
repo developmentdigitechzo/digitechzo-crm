@@ -388,11 +388,6 @@ export class UsersService {
       throw new NotFoundException(`User with ID '${id}' not found in this organization`);
     }
 
-    // Prevent self-lockout
-    if (id === user.userId) {
-      throw new BadRequestException('Cannot deactivate your own user account');
-    }
-
     await this.prisma.user.update({
       where: { id },
       data: { status: 'INACTIVE' },

@@ -17,6 +17,7 @@ import { Transform, Type } from 'class-transformer';
 export enum InvoiceStatusEnum {
   DRAFT = 'DRAFT',
   SENT = 'SENT',
+  UNPAID = 'UNPAID',
   PAID = 'PAID',
   PARTIALLY_PAID = 'PARTIALLY_PAID',
   OVERDUE = 'OVERDUE',
@@ -107,13 +108,21 @@ export class CreateInvoiceDto {
 
   @ApiPropertyOptional({ description: 'Linked CRM Lead UUID' })
   @IsOptional()
+  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
   @IsUUID('4')
   leadId?: string;
 
   @ApiPropertyOptional({ description: 'Linked CRM Customer UUID' })
   @IsOptional()
+  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
   @IsUUID('4')
   customerId?: string;
+
+  @ApiPropertyOptional({ description: 'Invoice Creator User UUID' })
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value === null ? undefined : value))
+  @IsUUID('4')
+  creatorId?: string;
 
   @ApiPropertyOptional({ description: 'Invoice issue date (YYYY-MM-DD)' })
   @IsOptional()
@@ -208,6 +217,11 @@ export class CreateInvoiceDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Header for notes section', example: 'Terms & Instructions' })
+  @IsOptional()
+  @IsString()
+  notesHeading?: string;
 
   @ApiPropertyOptional({ description: 'Custom footer disclaimer' })
   @IsOptional()

@@ -45,6 +45,22 @@ import {
   Loader2,
 } from 'lucide-react';
 
+const TIME_SLOTS_OPTIONS = (() => {
+  const slots: { value: string; label: string }[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      const value = `${hh}:${mm}`;
+      const period = h >= 12 ? 'PM' : 'AM';
+      const displayH = h % 12 === 0 ? 12 : h % 12;
+      const label = `${String(displayH).padStart(2, '0')}:${mm} ${period}`;
+      slots.push({ value, label });
+    }
+  }
+  return slots;
+})();
+
 export const TasksPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -77,6 +93,7 @@ export const TasksPage: React.FC = () => {
 
   // Modals state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isManualTime, setIsManualTime] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskItem | null>(null);
   const [isOutcomeModalOpen, setIsOutcomeModalOpen] = useState(false);
   const [taskForOutcome, setTaskForOutcome] = useState<TaskItem | null>(null);
@@ -107,6 +124,7 @@ export const TasksPage: React.FC = () => {
       dueTime: '',
       priority: 'HIGH',
     });
+    setIsManualTime(false);
     setFormError(null);
     setIsScheduleModalOpen(true);
   };
@@ -1059,10 +1077,10 @@ export const TasksPage: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleCreateTask} className="space-y-3.5 py-1">
+          <form onSubmit={handleCreateTask} className="space-y-3.5 pt-1 pb-0">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">
-                Task Description <span className="text-red-500">*</span>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">
+                Task Description <span className="text-red-500 ml-0.5">*</span>
               </label>
               <input
                 type="text"
@@ -1076,13 +1094,13 @@ export const TasksPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Action Type</label>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Action Type</label>
                 <select
                   value={newTaskForm.actionType}
                   onChange={(e) =>
                     setNewTaskForm({ ...newTaskForm, actionType: e.target.value as TaskActionType })
                   }
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle cursor-pointer"
                 >
                   <option value="CALL">Call</option>
                   <option value="WHATSAPP">WhatsApp</option>
@@ -1094,13 +1112,13 @@ export const TasksPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Priority</label>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Priority</label>
                 <select
                   value={newTaskForm.priority}
                   onChange={(e) =>
                     setNewTaskForm({ ...newTaskForm, priority: e.target.value as TaskPriority })
                   }
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle cursor-pointer"
                 >
                   <option value="URGENT">Urgent</option>
                   <option value="HIGH">High</option>
@@ -1111,11 +1129,11 @@ export const TasksPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Related Prospect / Lead</label>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Related Prospect / Lead</label>
               <select
                 value={newTaskForm.leadId}
                 onChange={(e) => setNewTaskForm({ ...newTaskForm, leadId: e.target.value })}
-                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle"
+                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary shadow-subtle cursor-pointer"
               >
                 <option value="">None / General Task</option>
                 {leads.map((lead: any) => (
@@ -1126,9 +1144,9 @@ export const TasksPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 items-start">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Due Date</label>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Due Date</label>
                 <input
                   type="date"
                   required
@@ -1140,25 +1158,60 @@ export const TasksPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary flex items-center justify-between">
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center justify-between">
                   <span>Due Time</span>
-                  <span className="text-[10px] text-txt-muted font-normal">Choose allocated time</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsManualTime(!isManualTime)}
+                    className="text-[10px] text-[#57B71B] hover:underline font-semibold cursor-pointer"
+                  >
+                    {isManualTime ? 'Pick from list' : 'Type custom time'}
+                  </button>
                 </label>
-                <input
-                  type="time"
-                  required
-                  value={newTaskForm.dueTime}
-                  onChange={(e) => {
-                    setNewTaskForm({ ...newTaskForm, dueTime: e.target.value });
-                    if (formError) setFormError(null);
-                  }}
-                  className={cn(
-                    'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
-                    newTaskForm.dueTime && isTimeOver(newTaskForm.dueDate, newTaskForm.dueTime)
-                      ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
-                      : 'border-border focus:ring-primary focus:border-primary'
-                  )}
-                />
+                {isManualTime ? (
+                  <input
+                    type="time"
+                    required
+                    value={newTaskForm.dueTime}
+                    onChange={(e) => {
+                      setNewTaskForm({ ...newTaskForm, dueTime: e.target.value });
+                      if (formError) setFormError(null);
+                    }}
+                    className={cn(
+                      'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
+                      newTaskForm.dueTime && isTimeOver(newTaskForm.dueDate, newTaskForm.dueTime)
+                        ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
+                        : 'border-border focus:ring-primary focus:border-primary'
+                    )}
+                  />
+                ) : (
+                  <select
+                    value={newTaskForm.dueTime}
+                    required
+                    onChange={(e) => {
+                      setNewTaskForm({ ...newTaskForm, dueTime: e.target.value });
+                      if (formError) setFormError(null);
+                    }}
+                    className={cn(
+                      'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
+                      newTaskForm.dueTime && isTimeOver(newTaskForm.dueDate, newTaskForm.dueTime)
+                        ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
+                        : 'border-border focus:ring-primary focus:border-primary'
+                    )}
+                  >
+                    <option value="">-- Choose time (e.g. 10:00 AM) --</option>
+                    {newTaskForm.dueTime && !TIME_SLOTS_OPTIONS.some((s) => s.value === newTaskForm.dueTime) && (
+                      <option value={newTaskForm.dueTime}>
+                        {formatDisplayTime(newTaskForm.dueTime)} (Current selection)
+                      </option>
+                    )}
+                    {TIME_SLOTS_OPTIONS.map((slot) => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -1233,13 +1286,13 @@ export const TasksPage: React.FC = () => {
               </button>
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-3.5 border-t border-border flex items-center justify-end gap-2 sm:space-x-0">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setIsScheduleModalOpen(false)}
-                className="h-8 text-xs cursor-pointer"
+                className="h-8 px-4 text-xs cursor-pointer min-w-[72px]"
                 disabled={isSubmitting}
               >
                 Cancel
@@ -1247,7 +1300,7 @@ export const TasksPage: React.FC = () => {
               <Button
                 type="submit"
                 size="sm"
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                className="h-8 px-4 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (
@@ -1315,12 +1368,12 @@ export const TasksPage: React.FC = () => {
               </div>
             </div>
 
-            <DialogFooter className="flex-row justify-between sm:justify-between items-center pt-2">
+            <DialogFooter className="flex-row justify-between sm:justify-between items-center pt-3.5 border-t border-border">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-8 text-xs cursor-pointer"
+                className="h-8 px-3.5 text-xs cursor-pointer"
                 onClick={async () => {
                   await handleToggleComplete(selectedTask.id);
                   setSelectedTask(null);
@@ -1332,7 +1385,7 @@ export const TasksPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <Button
                   size="sm"
-                  className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                  className="h-8 px-4 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
                   onClick={() => {
                     const task = selectedTask;
                     setSelectedTask(null);
@@ -1359,7 +1412,7 @@ export const TasksPage: React.FC = () => {
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleLogOutcomeSubmit} className="space-y-3 py-2 text-xs">
+          <form onSubmit={handleLogOutcomeSubmit} className="space-y-3 pt-2 pb-0 text-xs">
             <div className="space-y-1">
               <label className="text-caption text-txt-secondary block font-medium">Outcome Status</label>
               <select
@@ -1393,14 +1446,14 @@ export const TasksPage: React.FC = () => {
               />
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-3.5 border-t border-border flex items-center justify-end gap-2 sm:space-x-0">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setIsOutcomeModalOpen(false)}
                 disabled={isSubmitting}
-                className="h-8 text-xs cursor-pointer"
+                className="h-8 px-4 text-xs cursor-pointer min-w-[72px]"
               >
                 Cancel
               </Button>
@@ -1408,7 +1461,7 @@ export const TasksPage: React.FC = () => {
                 type="submit"
                 size="sm"
                 disabled={isSubmitting}
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer font-semibold"
+                className="h-8 px-4 text-xs bg-[#57B71B] hover:bg-[#469815] text-white cursor-pointer font-semibold"
               >
                 {isSubmitting ? 'Saving...' : 'Confirm & Complete'}
               </Button>

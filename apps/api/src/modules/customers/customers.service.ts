@@ -195,17 +195,38 @@ export class CustomersService {
       targetOwnerId = dto.ownerId;
     }
 
-    // Verify mandatory source lead
-    const lead = await this.prisma.lead.findFirst({
-      where: { id: dto.leadId, organizationId: user.organizationId, deletedAt: null },
-    });
-    if (!lead) throw new BadRequestException('Associated originating lead not found or inactive');
+    let originatingLeadId = dto.leadId;
+    if (originatingLeadId) {
+      const lead = await this.prisma.lead.findFirst({
+        where: { id: originatingLeadId, organizationId: user.organizationId, deletedAt: null },
+      });
+      if (!lead) throw new BadRequestException(`Source lead ${originatingLeadId} not found`);
+    } else {
+      // Auto-generate source lead for direct customer creation to satisfy relational integrity
+      const createdLead = await this.prisma.lead.create({
+        data: {
+          organizationId: user.organizationId,
+          ownerId: targetOwnerId,
+          fullName: dto.contactName,
+          companyName: dto.companyName,
+          email: dto.email,
+          phone: dto.phone,
+          status: 'WON',
+          address: dto.address || null,
+          city: dto.city || null,
+          state: dto.state || null,
+          postalCode: dto.postalCode || null,
+          country: dto.country || 'India',
+        },
+      });
+      originatingLeadId = createdLead.id;
+    }
 
     const customer = await this.prisma.customer.create({
       data: {
         organizationId: user.organizationId,
         ownerId: targetOwnerId,
-        leadId: dto.leadId,
+        leadId: originatingLeadId,
         dealId: dto.dealId || null,
         companyName: dto.companyName,
         contactName: dto.contactName,

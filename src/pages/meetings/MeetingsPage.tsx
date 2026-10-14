@@ -50,6 +50,22 @@ import {
   Trash2,
 } from 'lucide-react';
 
+const TIME_SLOTS_OPTIONS = (() => {
+  const slots: { value: string; label: string }[] = [];
+  for (let h = 0; h < 24; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      const value = `${hh}:${mm}`;
+      const period = h >= 12 ? 'PM' : 'AM';
+      const displayH = h % 12 === 0 ? 12 : h % 12;
+      const label = `${String(displayH).padStart(2, '0')}:${mm} ${period}`;
+      slots.push({ value, label });
+    }
+  }
+  return slots;
+})();
+
 export const MeetingsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -62,6 +78,7 @@ export const MeetingsPage: React.FC = () => {
 
   // Modals state
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [isManualTime, setIsManualTime] = useState(false);
   const [outcomeModalMeeting, setOutcomeModalMeeting] = useState<MeetingItem | null>(null);
   const [selectedMeeting, setSelectedMeeting] = useState<MeetingItem | null>(null);
 
@@ -88,6 +105,7 @@ export const MeetingsPage: React.FC = () => {
       notes: '',
       meetingUrl: '',
     });
+    setIsManualTime(false);
     setFormError(null);
     setIsScheduleModalOpen(true);
   };
@@ -958,10 +976,10 @@ export const MeetingsPage: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleCreateMeeting} className="space-y-3 py-1">
+          <form onSubmit={handleCreateMeeting} className="space-y-3.5 pt-1 pb-0">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">
-                Meeting Title <span className="text-red-500">*</span>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">
+                Meeting Title <span className="text-red-500 ml-0.5">*</span>
               </label>
               <input
                 type="text"
@@ -974,11 +992,11 @@ export const MeetingsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Related Prospect / Lead</label>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Related Prospect / Lead</label>
               <select
                 value={newMeetingForm.leadId}
                 onChange={(e) => setNewMeetingForm({ ...newMeetingForm, leadId: e.target.value })}
-                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+                className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle cursor-pointer"
               >
                 <option value="">None / General Session</option>
                 {leads.map((lead: any) => (
@@ -991,7 +1009,7 @@ export const MeetingsPage: React.FC = () => {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Session Modality</label>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Session Modality</label>
                 <select
                   value={newMeetingForm.meetingType}
                   onChange={(e) =>
@@ -1000,7 +1018,7 @@ export const MeetingsPage: React.FC = () => {
                       meetingType: e.target.value as MeetingType,
                     })
                   }
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle cursor-pointer"
                 >
                   <option value="DEMO">Technical Demo</option>
                   <option value="DISCOVERY">Discovery Session</option>
@@ -1010,13 +1028,13 @@ export const MeetingsPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Duration</label>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Duration</label>
                 <select
                   value={newMeetingForm.duration}
                   onChange={(e) =>
                     setNewMeetingForm({ ...newMeetingForm, duration: e.target.value })
                   }
-                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle"
+                  className="w-full h-8 px-2 text-xs rounded-input border border-border bg-white text-txt-primary focus:outline-none focus:ring-1 focus:ring-primary shadow-subtle cursor-pointer"
                 >
                   <option value="30 min">30 min</option>
                   <option value="45 min">45 min</option>
@@ -1026,9 +1044,11 @@ export const MeetingsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 items-start">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary">Date</label>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">
+                  Date <span className="text-red-500 ml-0.5">*</span>
+                </label>
                 <input
                   type="date"
                   required
@@ -1040,25 +1060,60 @@ export const MeetingsPage: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-txt-primary flex items-center justify-between">
-                  <span>Start Time</span>
-                  <span className="text-[10px] text-txt-muted font-normal">Choose allocated time</span>
+                <label className="h-5 text-xs font-semibold text-txt-primary flex items-center justify-between">
+                  <span>Start Time <span className="text-red-500 ml-0.5">*</span></span>
+                  <button
+                    type="button"
+                    onClick={() => setIsManualTime(!isManualTime)}
+                    className="text-[10px] text-[#57B71B] hover:underline font-semibold cursor-pointer"
+                  >
+                    {isManualTime ? 'Pick from list' : 'Type custom time'}
+                  </button>
                 </label>
-                <input
-                  type="time"
-                  required
-                  value={newMeetingForm.time}
-                  onChange={(e) => {
-                    setNewMeetingForm({ ...newMeetingForm, time: e.target.value });
-                    if (formError) setFormError(null);
-                  }}
-                  className={cn(
-                    'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
-                    newMeetingForm.time && isTimeOver(newMeetingForm.date, newMeetingForm.time)
-                      ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
-                      : 'border-border focus:ring-primary focus:border-primary'
-                  )}
-                />
+                {isManualTime ? (
+                  <input
+                    type="time"
+                    required
+                    value={newMeetingForm.time}
+                    onChange={(e) => {
+                      setNewMeetingForm({ ...newMeetingForm, time: e.target.value });
+                      if (formError) setFormError(null);
+                    }}
+                    className={cn(
+                      'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
+                      newMeetingForm.time && isTimeOver(newMeetingForm.date, newMeetingForm.time)
+                        ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
+                        : 'border-border focus:ring-primary focus:border-primary'
+                    )}
+                  />
+                ) : (
+                  <select
+                    value={newMeetingForm.time}
+                    required
+                    onChange={(e) => {
+                      setNewMeetingForm({ ...newMeetingForm, time: e.target.value });
+                      if (formError) setFormError(null);
+                    }}
+                    className={cn(
+                      'w-full h-8 px-2 text-xs rounded-input border bg-white text-txt-primary focus:outline-none focus:ring-1 shadow-subtle cursor-pointer',
+                      newMeetingForm.time && isTimeOver(newMeetingForm.date, newMeetingForm.time)
+                        ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50/40'
+                        : 'border-border focus:ring-primary focus:border-primary'
+                    )}
+                  >
+                    <option value="">-- Choose time (e.g. 10:00 AM) --</option>
+                    {newMeetingForm.time && !TIME_SLOTS_OPTIONS.some((s) => s.value === newMeetingForm.time) && (
+                      <option value={newMeetingForm.time}>
+                        {formatDisplayTime(newMeetingForm.time)} (Current selection)
+                      </option>
+                    )}
+                    {TIME_SLOTS_OPTIONS.map((slot) => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -1079,7 +1134,9 @@ export const MeetingsPage: React.FC = () => {
 
             {/* Quick Time Presets */}
             <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
-              <span className="text-[10px] font-semibold text-txt-muted">Quick suggestions:</span>
+              <span className="text-[10px] font-semibold text-txt-muted flex items-center gap-1">
+                <Clock className="h-3 w-3 text-txt-muted" /> Quick suggestions:
+              </span>
               <button
                 type="button"
                 onClick={() => {
@@ -1121,7 +1178,7 @@ export const MeetingsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Meeting URL / Location</label>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Meeting URL / Location</label>
               <input
                 type="text"
                 placeholder="e.g. https://meet.google.com/abc-xyz-demo"
@@ -1134,7 +1191,7 @@ export const MeetingsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Host</label>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Host</label>
               <input
                 type="text"
                 disabled
@@ -1144,7 +1201,7 @@ export const MeetingsPage: React.FC = () => {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-txt-primary">Agenda / Notes</label>
+              <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Agenda / Notes</label>
               <textarea
                 rows={2}
                 placeholder="Key discovery questions or architecture points to demonstrate..."
@@ -1154,13 +1211,13 @@ export const MeetingsPage: React.FC = () => {
               />
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="pt-3.5 border-t border-border flex items-center justify-end gap-2 sm:space-x-0">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setIsScheduleModalOpen(false)}
-                className="h-8 text-xs cursor-pointer"
+                className="h-8 px-4 text-xs cursor-pointer min-w-[72px]"
                 disabled={isSubmitting}
               >
                 Cancel
@@ -1168,7 +1225,7 @@ export const MeetingsPage: React.FC = () => {
               <Button
                 type="submit"
                 size="sm"
-                className="h-8 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
+                className="h-8 px-4 text-xs bg-[#57B71B] hover:bg-[#469815] text-white font-semibold cursor-pointer"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? (

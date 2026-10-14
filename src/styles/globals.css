@@ -98,23 +98,255 @@
   background: #94A3B8;
 }
 
-/* Print Stylesheet for In-Voice Document */
+/* ========================================================= */
+/* Print & PDF Stylesheet for Digitechzo Invoice Studio      */
+/* ========================================================= */
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm 10mm 8mm 10mm;
+  }
+
+  /* Force background colors and exact typography in print */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Reset document root so browser renders clean unclipped document strictly on 1 page */
+  html,
   body {
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #0f172a !important;
     padding: 0 !important;
     margin: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    font-size: 11px !important;
+    line-height: 1.35 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
   }
-  aside, header, nav, .no-print, [role="navigation"] {
+
+  /* Zero out and release all application outer containers and their padding */
+  #root,
+  #root > div,
+  .h-screen,
+  .w-screen,
+  .min-h-screen,
+  .overflow-hidden,
+  .overflow-x-auto,
+  .overflow-y-auto,
+  main,
+  .invoice-preview-column,
+  .invoice-preview-column > div {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    gap: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  /* Completely hide all CRM navigation, toolbars, sidebar, modals, and editor controls */
+  aside,
+  header,
+  nav,
+  .no-print,
+  .invoice-editor-column,
+  [role="navigation"],
+  [role="dialog"] {
     display: none !important;
   }
+
+  /* Force invoice preview container to take full width cleanly with zero margins/padding */
+  .invoice-preview-column {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+  }
+
+  .invoice-preview-column > div {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Format invoice document for clean, strictly single-page print output */
   #invoiceDocument {
+    display: block !important;
     box-shadow: none !important;
     border: none !important;
-    margin: 0 auto !important;
-    padding: 24px !important;
+    margin: 0 !important;
+    padding: 0 !important;
     width: 100% !important;
-    max-width: 800px !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: 255mm !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+  }
+
+  /* Balanced vertical gaps between sections */
+  #invoiceDocument > * + * {
+    margin-top: 10px !important;
+  }
+
+  /* Elegant invoice cards and summary blocks for single page */
+  #invoiceDocument .invoice-card {
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Header in print */
+  #invoiceDocument .invoice-header {
+    padding-bottom: 10px !important;
+    border-bottom-width: 1px !important;
+  }
+
+  /* Table styling in print */
+  #invoiceDocument table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  #invoiceDocument thead {
+    display: table-header-group !important;
+  }
+
+  #invoiceDocument thead th {
+    padding: 7px 10px !important;
+    font-size: 10.5px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.04em !important;
+    line-height: 1.25 !important;
+  }
+
+  #invoiceDocument tbody tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  #invoiceDocument tbody td {
+    padding: 7px 10px !important;
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+    vertical-align: top !important;
+  }
+
+  /* Clean payment & totals cards in print */
+  #invoiceDocument .invoice-payment-block {
+    padding: 7px 10px !important;
+    border-radius: 8px !important;
+  }
+
+  #invoiceDocument .invoice-totals-block {
+    padding: 10px 14px !important;
+    border-radius: 10px !important;
+  }
+
+  /* Section 2: Metadata Grid - Side-by-side on same row */
+  #invoiceDocument .invoice-meta-grid {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  #invoiceDocument .invoice-meta-left {
+    grid-column: span 7 / span 7 !important;
+  }
+  #invoiceDocument .invoice-meta-right {
+    grid-column: span 5 / span 5 !important;
+  }
+
+  /* Section 4: Payment & Totals Grid - Side-by-side on same row */
+  #invoiceDocument .invoice-payment-grid {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  #invoiceDocument .invoice-payment-left {
+    grid-column: span 7 / span 7 !important;
+  }
+  #invoiceDocument .invoice-payment-right {
+    grid-column: span 5 / span 5 !important;
+  }
+
+  /* Section 5: Terms & Signature Grid - Always side-by-side on same row and equal height */
+  #invoiceDocument .invoice-terms-grid {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    align-items: stretch !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  #invoiceDocument .invoice-terms-left {
+    grid-column: span 7 / span 7 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    height: 100% !important;
+  }
+  #invoiceDocument .invoice-terms-full {
+    grid-column: span 12 / span 12 !important;
+    width: 100% !important;
+  }
+  #invoiceDocument .invoice-terms-right {
+    grid-column: span 5 / span 5 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    height: 100% !important;
+  }
+
+  /* Footer in print */
+  #invoiceDocument .invoice-footer {
+    padding-top: 8px !important;
+    margin-top: 8px !important;
+    border-top: 1px solid #f1f5f9 !important;
+  }
+
+  /* Prevent page-breaks in key invoice cards and summary blocks */
+  .invoice-card,
+  .invoice-avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 }
+

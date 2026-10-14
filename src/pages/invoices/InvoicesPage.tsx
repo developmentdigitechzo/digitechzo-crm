@@ -92,42 +92,96 @@ interface BankAccount {
 
 const INITIAL_BANK_ACCOUNT: BankAccount = {
   id: 'bank_1',
-  bankName: 'Primary Bank Account',
+  bankName: 'HDFC Corporate Banking',
   accountName: 'Digitechzo Media & Technologies Pvt Ltd',
-  accountNumber: '',
-  ifscSwift: '',
-  branch: '',
+  accountNumber: '50200098765432',
+  ifscSwift: 'HDFC0001234',
+  branch: 'IT Park Phase 2, Chennai',
 };
 
-const UPI_PRESETS = {
-  official: {
+export interface UpiAccount {
+  id: string;
+  name: string;
+  upiId: string;
+  payeeName: string;
+  note?: string;
+}
+
+export interface CryptoWallet {
+  id: string;
+  name: string;
+  coin: string;
+  network: string;
+  address: string;
+}
+
+export interface PaymentState {
+  activeTab: 'bank' | 'upi' | 'crypto';
+  enableBank: boolean;
+  enableUpi: boolean;
+  enableCrypto: boolean;
+  bankPreset: string;
+  bank: BankAccount;
+  upiPreset: string;
+  upi: UpiAccount;
+  customUpiQr: string;
+  showUpiQr: boolean;
+  cryptoPreset: string;
+  crypto: CryptoWallet;
+  customCryptoQr: string;
+  showCryptoQr: boolean;
+}
+
+const DEFAULT_UPI_ACCOUNTS: UpiAccount[] = [
+  {
+    id: 'official',
+    name: 'Digitechzo Official UPI (digitechzo@okicici)',
     upiId: 'digitechzo@okicici',
     payeeName: 'Digitechzo',
     note: 'Payment for DigiTechzo Invoice',
   },
-  gpay: {
+  {
+    id: 'gpay',
+    name: 'GPay Merchant (9876543210@okbizaxis)',
     upiId: '9876543210@okbizaxis',
     payeeName: 'Digitechzo Business',
     note: 'Digitechzo Commercial Operations',
   },
-};
+];
 
-const CRYPTO_PRESETS = {
-  usdt_trc20: {
+const DEFAULT_CRYPTO_WALLETS: CryptoWallet[] = [
+  {
+    id: 'usdt_trc20',
+    name: 'USDT (TRC20 - Tron)',
     coin: 'USDT (TRC20)',
     network: 'TRON (TRC20)',
     address: 'TYDzsYWaWXtHVRMokBSuP2t97711234567',
   },
-  usdt_erc20: {
+  {
+    id: 'usdt_erc20',
+    name: 'USDT (ERC20 - Ethereum)',
     coin: 'USDT (ERC20)',
     network: 'Ethereum (ERC20)',
     address: '0x71C8364862Ab394F80bA176e3d2319047915B51c',
   },
-  btc: {
+  {
+    id: 'btc',
+    name: 'Bitcoin (BTC Mainnet)',
     coin: 'BTC (Bitcoin)',
     network: 'Bitcoin Mainnet',
     address: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa',
   },
+];
+
+const UPI_PRESETS = {
+  official: DEFAULT_UPI_ACCOUNTS[0],
+  gpay: DEFAULT_UPI_ACCOUNTS[1],
+};
+
+const CRYPTO_PRESETS = {
+  usdt_trc20: DEFAULT_CRYPTO_WALLETS[0],
+  usdt_erc20: DEFAULT_CRYPTO_WALLETS[1],
+  btc: DEFAULT_CRYPTO_WALLETS[2],
 };
 
 export const DEFAULT_BRAND_THEME = {
@@ -217,6 +271,7 @@ export const InvoicesPage: React.FC = () => {
     currency: '₹',
     status: 'UNPAID',
     amountPaid: 0,
+    issuedBy: 'DigiTechzo Administrator',
   });
 
   // Auto-calculate Due Date when terms or date change
@@ -306,7 +361,7 @@ export const InvoicesPage: React.FC = () => {
   const [editingColId, setEditingColId] = useState<string | null>(null);
 
   // 7. Payment Options
-  const [payment, setPayment] = useState({
+  const [payment, setPayment] = useState<PaymentState>({
     activeTab: 'bank' as 'bank' | 'upi' | 'crypto',
     enableBank: true,
     enableUpi: true,
@@ -316,9 +371,11 @@ export const InvoicesPage: React.FC = () => {
     upiPreset: 'official',
     upi: UPI_PRESETS.official,
     customUpiQr: '',
+    showUpiQr: true,
     cryptoPreset: 'usdt_trc20',
     crypto: CRYPTO_PRESETS.usdt_trc20,
     customCryptoQr: '',
+    showCryptoQr: true,
   });
 
   // 8. Notes, Signature & Footer
@@ -331,6 +388,7 @@ export const InvoicesPage: React.FC = () => {
     role: 'Managing Director',
     signatureImage: '',
   });
+  const [showSignatureBlock, setShowSignatureBlock] = useState(true);
   const [footerText, setFooterText] = useState(
     'Digitechzo | Official Invoice Generator & Billing Portal'
   );
@@ -505,20 +563,81 @@ export const InvoicesPage: React.FC = () => {
   const newBankInputRef = useRef<HTMLInputElement>(null);
   const editBankInputRef = useRef<HTMLInputElement>(null);
 
-  // Close bank dropdown on click outside
+  // Custom Searchable & Addable UPI Account Dropdown State
+  const [savedUpiAccounts, setSavedUpiAccounts] = useState<UpiAccount[]>(() => {
+    try {
+      const saved = localStorage.getItem('digitechzo_saved_upi_accounts');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_UPI_ACCOUNTS;
+  });
+
+  const [isUpiDropdownOpen, setIsUpiDropdownOpen] = useState(false);
+  const [upiSearchFilter, setUpiSearchFilter] = useState('');
+  const [isAddingNewUpi, setIsAddingNewUpi] = useState(false);
+  const [newUpiInput, setNewUpiInput] = useState('');
+  const [editingUpiId, setEditingUpiId] = useState<string | null>(null);
+  const [editingUpiName, setEditingUpiName] = useState('');
+  const upiDropdownRef = useRef<HTMLDivElement>(null);
+  const upiSearchInputRef = useRef<HTMLInputElement>(null);
+  const newUpiInputRef = useRef<HTMLInputElement>(null);
+  const editUpiInputRef = useRef<HTMLInputElement>(null);
+
+  // Custom Searchable & Addable Crypto Wallet Dropdown State
+  const [savedCryptoWallets, setSavedCryptoWallets] = useState<CryptoWallet[]>(() => {
+    try {
+      const saved = localStorage.getItem('digitechzo_saved_crypto_wallets');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_CRYPTO_WALLETS;
+  });
+
+  const [isCryptoDropdownOpen, setIsCryptoDropdownOpen] = useState(false);
+  const [cryptoSearchFilter, setCryptoSearchFilter] = useState('');
+  const [isAddingNewCrypto, setIsAddingNewCrypto] = useState(false);
+  const [newCryptoInput, setNewCryptoInput] = useState('');
+  const [editingCryptoId, setEditingCryptoId] = useState<string | null>(null);
+  const [editingCryptoName, setEditingCryptoName] = useState('');
+  const cryptoDropdownRef = useRef<HTMLDivElement>(null);
+  const cryptoSearchInputRef = useRef<HTMLInputElement>(null);
+  const newCryptoInputRef = useRef<HTMLInputElement>(null);
+  const editCryptoInputRef = useRef<HTMLInputElement>(null);
+
+  // Close payment dropdowns on click outside
   useEffect(() => {
-    const handleClickOutsideBank = (event: MouseEvent) => {
-      if (bankDropdownRef.current && !bankDropdownRef.current.contains(event.target as Node)) {
+    const handleClickOutsidePaymentDropdowns = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (bankDropdownRef.current && !bankDropdownRef.current.contains(target)) {
         setIsBankDropdownOpen(false);
         setIsAddingNewBank(false);
         setEditingBankId(null);
         setBankSearchFilter('');
         setNewBankInput('');
       }
+      if (upiDropdownRef.current && !upiDropdownRef.current.contains(target)) {
+        setIsUpiDropdownOpen(false);
+        setIsAddingNewUpi(false);
+        setEditingUpiId(null);
+        setUpiSearchFilter('');
+        setNewUpiInput('');
+      }
+      if (cryptoDropdownRef.current && !cryptoDropdownRef.current.contains(target)) {
+        setIsCryptoDropdownOpen(false);
+        setIsAddingNewCrypto(false);
+        setEditingCryptoId(null);
+        setCryptoSearchFilter('');
+        setNewCryptoInput('');
+      }
     };
-    document.addEventListener('mousedown', handleClickOutsideBank);
+    document.addEventListener('mousedown', handleClickOutsidePaymentDropdowns);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutsideBank);
+      document.removeEventListener('mousedown', handleClickOutsidePaymentDropdowns);
     };
   }, []);
 
@@ -564,6 +683,144 @@ export const InvoicesPage: React.FC = () => {
     setEditingBankId(null);
     setEditingBankName('');
     showToast(`Bank renamed to "${trimmed}"`);
+  };
+
+  const handleUpdateCurrentUpi = (fields: Partial<UpiAccount>) => {
+    const updatedUpi = { ...payment.upi, ...fields };
+    setPayment((p) => ({ ...p, upi: updatedUpi }));
+
+    setSavedUpiAccounts((prev) => {
+      const exists = prev.some((u) => u.id === payment.upiPreset);
+      const nextList = exists
+        ? prev.map((u) => (u.id === payment.upiPreset ? { ...u, ...fields } : u))
+        : [...prev, { ...updatedUpi, id: payment.upiPreset, name: payment.upiPreset }];
+      localStorage.setItem('digitechzo_saved_upi_accounts', JSON.stringify(nextList));
+      return nextList;
+    });
+  };
+
+  const handleAddNewUpiConfirm = () => {
+    const trimmed = newUpiInput.trim();
+    if (!trimmed) {
+      showToast('Please enter a UPI account name');
+      return;
+    }
+
+    const newId = `upi_${Date.now()}`;
+    const newAccount: UpiAccount = {
+      id: newId,
+      name: trimmed,
+      upiId: '',
+      payeeName: sender.name || 'Digitechzo',
+      note: 'Payment for Invoice',
+    };
+    const updated = [...savedUpiAccounts, newAccount];
+    setSavedUpiAccounts(updated);
+    localStorage.setItem('digitechzo_saved_upi_accounts', JSON.stringify(updated));
+    setPayment((p) => ({ ...p, upiPreset: newId, upi: newAccount }));
+    setIsUpiDropdownOpen(false);
+    setIsAddingNewUpi(false);
+    setNewUpiInput('');
+    setUpiSearchFilter('');
+    showToast(`UPI account "${trimmed}" added and selected!`);
+  };
+
+  const handleDeleteSavedUpi = (upiId: string) => {
+    if (savedUpiAccounts.length <= 1) {
+      showToast('You must have at least one UPI account');
+      return;
+    }
+    const updated = savedUpiAccounts.filter((u) => u.id !== upiId);
+    setSavedUpiAccounts(updated);
+    localStorage.setItem('digitechzo_saved_upi_accounts', JSON.stringify(updated));
+    if (payment.upiPreset === upiId) {
+      const nextUpi = updated[0];
+      setPayment((p) => ({ ...p, upiPreset: nextUpi.id, upi: nextUpi }));
+    }
+    showToast('UPI account removed');
+  };
+
+  const handleSaveUpiRename = (upiId: string) => {
+    const trimmed = editingUpiName.trim();
+    if (!trimmed) {
+      showToast('Account name cannot be empty');
+      return;
+    }
+    const updated = savedUpiAccounts.map((u) => (u.id === upiId ? { ...u, name: trimmed } : u));
+    setSavedUpiAccounts(updated);
+    localStorage.setItem('digitechzo_saved_upi_accounts', JSON.stringify(updated));
+    setEditingUpiId(null);
+    setEditingUpiName('');
+    showToast(`UPI account renamed to "${trimmed}"`);
+  };
+
+  const handleUpdateCurrentCrypto = (fields: Partial<CryptoWallet>) => {
+    const updatedCrypto = { ...payment.crypto, ...fields };
+    setPayment((p) => ({ ...p, crypto: updatedCrypto }));
+
+    setSavedCryptoWallets((prev) => {
+      const exists = prev.some((c) => c.id === payment.cryptoPreset);
+      const nextList = exists
+        ? prev.map((c) => (c.id === payment.cryptoPreset ? { ...c, ...fields } : c))
+        : [...prev, { ...updatedCrypto, id: payment.cryptoPreset, name: payment.cryptoPreset }];
+      localStorage.setItem('digitechzo_saved_crypto_wallets', JSON.stringify(nextList));
+      return nextList;
+    });
+  };
+
+  const handleAddNewCryptoConfirm = () => {
+    const trimmed = newCryptoInput.trim();
+    if (!trimmed) {
+      showToast('Please enter a crypto wallet name');
+      return;
+    }
+
+    const newId = `crypto_${Date.now()}`;
+    const newWallet: CryptoWallet = {
+      id: newId,
+      name: trimmed,
+      coin: 'USDT (TRC20)',
+      network: 'TRON (TRC20)',
+      address: '',
+    };
+    const updated = [...savedCryptoWallets, newWallet];
+    setSavedCryptoWallets(updated);
+    localStorage.setItem('digitechzo_saved_crypto_wallets', JSON.stringify(updated));
+    setPayment((p) => ({ ...p, cryptoPreset: newId, crypto: newWallet }));
+    setIsCryptoDropdownOpen(false);
+    setIsAddingNewCrypto(false);
+    setNewCryptoInput('');
+    setCryptoSearchFilter('');
+    showToast(`Crypto wallet "${trimmed}" added and selected!`);
+  };
+
+  const handleDeleteSavedCrypto = (cryptoId: string) => {
+    if (savedCryptoWallets.length <= 1) {
+      showToast('You must have at least one crypto wallet');
+      return;
+    }
+    const updated = savedCryptoWallets.filter((c) => c.id !== cryptoId);
+    setSavedCryptoWallets(updated);
+    localStorage.setItem('digitechzo_saved_crypto_wallets', JSON.stringify(updated));
+    if (payment.cryptoPreset === cryptoId) {
+      const nextCrypto = updated[0];
+      setPayment((p) => ({ ...p, cryptoPreset: nextCrypto.id, crypto: nextCrypto }));
+    }
+    showToast('Crypto wallet removed');
+  };
+
+  const handleSaveCryptoRename = (cryptoId: string) => {
+    const trimmed = editingCryptoName.trim();
+    if (!trimmed) {
+      showToast('Wallet name cannot be empty');
+      return;
+    }
+    const updated = savedCryptoWallets.map((c) => (c.id === cryptoId ? { ...c, name: trimmed } : c));
+    setSavedCryptoWallets(updated);
+    localStorage.setItem('digitechzo_saved_crypto_wallets', JSON.stringify(updated));
+    setEditingCryptoId(null);
+    setEditingCryptoName('');
+    showToast(`Crypto wallet renamed to "${trimmed}"`);
   };
 
   // Toggle Qty Column & Persist
@@ -904,10 +1161,25 @@ export const InvoicesPage: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target?.result as string;
-      setPayment((prev) => ({ ...prev, customUpiQr: base64 }));
+      setPayment((prev) => ({ ...prev, customUpiQr: base64, showUpiQr: true }));
       showToast('Custom UPI QR uploaded');
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Custom Crypto QR upload
+  const handleCryptoQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setPayment((prev) => ({ ...prev, customCryptoQr: base64, showCryptoQr: true }));
+      showToast('Custom Crypto QR uploaded');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   // Save Invoice (Database + Local Sync)
@@ -940,7 +1212,9 @@ export const InvoicesPage: React.FC = () => {
         customColumns,
         payment,
         notes,
+        notesHeading,
         signature,
+        showSignatureBlock,
         footerText,
         activeTheme,
       },
@@ -1031,10 +1305,17 @@ export const InvoicesPage: React.FC = () => {
     if (d.enablePriceColumn !== undefined) setEnablePriceColumn(d.enablePriceColumn);
     if (d.enableAdvanceColumn !== undefined) setEnableAdvanceColumn(d.enableAdvanceColumn);
     if (d.customColumns) setCustomColumns(d.customColumns);
-    if (d.payment) setPayment(d.payment);
+    if (d.payment) {
+      setPayment({
+        ...d.payment,
+        showUpiQr: d.payment.showUpiQr ?? true,
+        showCryptoQr: d.payment.showCryptoQr ?? true,
+      });
+    }
     if (d.notes !== undefined) setNotes(d.notes);
     if (d.notesHeading !== undefined) setNotesHeading(d.notesHeading);
     if (d.signature) setSignature(d.signature);
+    if (d.showSignatureBlock !== undefined) setShowSignatureBlock(d.showSignatureBlock);
     if (d.footerText !== undefined) setFooterText(d.footerText);
     if (d.activeTheme) setActiveTheme(d.activeTheme);
     setIsHistoryModalOpen(false);
@@ -1088,6 +1369,7 @@ export const InvoicesPage: React.FC = () => {
       status: 'UNPAID',
       amountPaid: 0,
     }));
+    setShowSignatureBlock(true);
     setActiveTheme(DEFAULT_BRAND_THEME);
     showToast('Invoice form reset');
   };
@@ -1097,8 +1379,35 @@ export const InvoicesPage: React.FC = () => {
     window.print();
   };
 
+  // Currently selected UPI Account
+  const currentUpiAccount = useMemo(() => {
+    return (
+      savedUpiAccounts.find((u) => u.id === payment.upiPreset) || {
+        id: payment.upiPreset,
+        name: payment.upi.payeeName ? `${payment.upi.payeeName} UPI` : 'UPI Account',
+        upiId: payment.upi.upiId,
+        payeeName: payment.upi.payeeName,
+        note: payment.upi.note,
+      }
+    );
+  }, [savedUpiAccounts, payment.upiPreset, payment.upi]);
+
+  // Currently selected Crypto Wallet
+  const currentCryptoWallet = useMemo(() => {
+    return (
+      savedCryptoWallets.find((c) => c.id === payment.cryptoPreset) || {
+        id: payment.cryptoPreset,
+        name: payment.crypto.coin ? `${payment.crypto.coin} Wallet` : 'Crypto Wallet',
+        coin: payment.crypto.coin,
+        network: payment.crypto.network,
+        address: payment.crypto.address,
+      }
+    );
+  }, [savedCryptoWallets, payment.cryptoPreset, payment.crypto]);
+
   // UPI QR Code URL
   const upiQrUrl = useMemo(() => {
+    if (payment.showUpiQr === false) return '';
     if (payment.customUpiQr) return payment.customUpiQr;
     if (!payment.upi.upiId) return '';
     const upiUrl = `upi://pay?pa=${encodeURIComponent(payment.upi.upiId)}&pn=${encodeURIComponent(
@@ -1109,16 +1418,17 @@ export const InvoicesPage: React.FC = () => {
     return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
       upiUrl
     )}`;
-  }, [payment.customUpiQr, payment.upi, sender.name, grandTotal, meta.number]);
+  }, [payment.showUpiQr, payment.customUpiQr, payment.upi, sender.name, grandTotal, meta.number]);
 
   // Crypto QR Code URL
   const cryptoQrUrl = useMemo(() => {
+    if (payment.showCryptoQr === false) return '';
     if (payment.customCryptoQr) return payment.customCryptoQr;
     if (!payment.crypto.address) return '';
     return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
       payment.crypto.address
     )}`;
-  }, [payment.customCryptoQr, payment.crypto.address]);
+  }, [payment.showCryptoQr, payment.customCryptoQr, payment.crypto.address]);
 
   // Filtered saved invoices
   const filteredInvoices = useMemo(() => {
@@ -2631,28 +2941,286 @@ export const InvoicesPage: React.FC = () => {
                     <span>Enable UPI QR & ID Option on Invoice</span>
                   </label>
 
-                  <div>
+                  {/* UPI Account / Destination Dropdown */}
+                  <div className="relative" ref={upiDropdownRef}>
                     <label className="text-[11px] font-semibold text-[#57B71B] block mb-1">
-                      Quick Select UPI Preset:
+                      UPI Account / Payment Destination:
                     </label>
-                    <select
-                      value={payment.upiPreset}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === 'official') {
-                          setPayment((p) => ({ ...p, upiPreset: 'official', upi: UPI_PRESETS.official }));
-                        } else if (val === 'gpay') {
-                          setPayment((p) => ({ ...p, upiPreset: 'gpay', upi: UPI_PRESETS.gpay }));
-                        } else {
-                          setPayment((p) => ({ ...p, upiPreset: 'custom' }));
-                        }
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsUpiDropdownOpen((prev) => !prev);
+                        setIsAddingNewUpi(false);
+                        setEditingUpiId(null);
+                        setUpiSearchFilter('');
+                        setTimeout(() => upiSearchInputRef.current?.focus(), 60);
                       }}
-                      className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary cursor-pointer"
+                      className="w-full h-9 rounded-btn border border-border bg-white px-2.5 text-xs text-txt-primary flex items-center justify-between hover:border-[#57B71B] transition-colors cursor-pointer text-left shadow-2xs"
                     >
-                      <option value="official">Digitechzo Official UPI (digitechzo@okicici)</option>
-                      <option value="gpay">GPay Merchant (9876543210@okbizaxis)</option>
-                      <option value="custom">✍️ Custom UPI Details...</option>
-                    </select>
+                      <div className="flex items-center gap-2 truncate">
+                        <Wallet className="h-4 w-4 text-[#57B71B] shrink-0" />
+                        <span className="text-txt-primary font-bold truncate">
+                          {currentUpiAccount?.name || payment.upi.payeeName || 'Select or Add UPI Account'}
+                        </span>
+                        {payment.upi.upiId && (
+                          <span className="text-[10px] text-txt-muted font-mono shrink-0">
+                            ({payment.upi.upiId})
+                          </span>
+                        )}
+                      </div>
+                      <ChevronDown
+                        className={`h-4 w-4 text-txt-muted shrink-0 transition-transform duration-200 ${
+                          isUpiDropdownOpen ? 'rotate-180 text-[#57B71B]' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {isUpiDropdownOpen && (
+                      <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-border rounded-card shadow-xl py-1 text-xs max-h-80 overflow-hidden flex flex-col animate-in fade-in-50 zoom-in-95 duration-100">
+                        {/* Search Header */}
+                        <div className="p-1.5 border-b border-border/60 bg-slate-50/50">
+                          <div className="relative flex items-center">
+                            <Search className="absolute left-2.5 h-3.5 w-3.5 text-txt-muted pointer-events-none" />
+                            <input
+                              ref={upiSearchInputRef}
+                              type="text"
+                              value={upiSearchFilter}
+                              onChange={(e) => setUpiSearchFilter(e.target.value)}
+                              placeholder="Search UPI accounts or type to filter..."
+                              className="w-full h-7 rounded-input border border-border bg-white pl-8 pr-2 text-xs text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* UPI Accounts List */}
+                        <div className="overflow-y-auto flex-1 py-1 max-h-48 divide-y divide-slate-100/60">
+                          <div className="px-2.5 py-1 text-[10px] font-semibold text-txt-muted uppercase tracking-wider flex items-center justify-between">
+                            <span>Saved UPI Accounts ({savedUpiAccounts.length})</span>
+                            <span className="text-[9px] font-normal lowercase">click to select</span>
+                          </div>
+
+                          {savedUpiAccounts
+                            .filter((u) => {
+                              if (!u.name || u.name.trim() === '') return false;
+                              const q = upiSearchFilter.trim().toLowerCase();
+                              if (!q) return true;
+                              return (
+                                u.name.toLowerCase().includes(q) ||
+                                (u.upiId || '').toLowerCase().includes(q) ||
+                                (u.payeeName || '').toLowerCase().includes(q)
+                              );
+                            })
+                            .map((u) => {
+                              const isSelected = payment.upiPreset === u.id;
+                              const isEditingThis = editingUpiId === u.id;
+
+                              if (isEditingThis) {
+                                return (
+                                  <div key={u.id} className="p-1.5 bg-emerald-50/50 flex items-center gap-1.5">
+                                    <input
+                                      ref={editUpiInputRef}
+                                      type="text"
+                                      value={editingUpiName}
+                                      onChange={(e) => setEditingUpiName(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleSaveUpiRename(u.id);
+                                        }
+                                        if (e.key === 'Escape') {
+                                          setEditingUpiId(null);
+                                        }
+                                      }}
+                                      className="flex-1 h-7 rounded border border-[#57B71B] bg-white px-2 text-xs font-bold text-txt-primary focus:outline-none"
+                                      placeholder="Enter account name..."
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveUpiRename(u.id)}
+                                      className="h-7 px-2 rounded bg-[#57B71B] hover:bg-[#469815] text-white text-[11px] font-bold cursor-pointer"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingUpiId(null)}
+                                      className="h-7 px-2 text-[11px] text-txt-muted hover:text-txt-primary cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={u.id}
+                                  className={`w-full flex items-center justify-between px-2.5 py-2 hover:bg-slate-50 transition-colors group ${
+                                    isSelected ? 'bg-emerald-50/60 font-bold' : ''
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPayment((p) => ({
+                                        ...p,
+                                        upiPreset: u.id,
+                                        upi: u,
+                                      }));
+                                      setIsUpiDropdownOpen(false);
+                                      setUpiSearchFilter('');
+                                      setIsAddingNewUpi(false);
+                                    }}
+                                    className="flex-1 flex items-center gap-2 text-left truncate cursor-pointer mr-2"
+                                  >
+                                    <Wallet className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-[#57B71B]' : 'text-slate-400'}`} />
+                                    <span className={`truncate text-xs ${isSelected ? 'text-[#57B71B]' : 'text-txt-primary'}`}>
+                                      {u.name.trim()}
+                                    </span>
+                                    {u.upiId && (
+                                      <span className="text-[10px] text-txt-muted font-mono shrink-0">
+                                        ({u.upiId})
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                                      Custom
+                                    </span>
+                                  </button>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {isSelected && <Check className="h-4 w-4 text-[#57B71B] shrink-0 mr-1" />}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingUpiId(u.id);
+                                        setEditingUpiName(u.name);
+                                        setTimeout(() => editUpiInputRef.current?.focus(), 50);
+                                      }}
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                      title="Edit / Rename account name"
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                    </button>
+                                    {savedUpiAccounts.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteSavedUpi(u.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 transition-colors cursor-pointer"
+                                        title="Remove this UPI account"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {/* Other / Add New UPI Account Section */}
+                        <div className="border-t border-border/70 p-1.5 bg-slate-50/80">
+                          {isAddingNewUpi ? (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  ref={newUpiInputRef}
+                                  type="text"
+                                  value={newUpiInput}
+                                  onChange={(e) => setNewUpiInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleAddNewUpiConfirm();
+                                    }
+                                    if (e.key === 'Escape') {
+                                      setIsAddingNewUpi(false);
+                                    }
+                                  }}
+                                  placeholder="Enter new UPI account name..."
+                                  className="flex-1 h-7 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleAddNewUpiConfirm}
+                                  disabled={!newUpiInput.trim()}
+                                  className="h-7 px-2.5 rounded-btn bg-[#57B71B] hover:bg-[#469815] text-white text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                >
+                                  Add
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsAddingNewUpi(false);
+                                    setNewUpiInput('');
+                                  }}
+                                  className="h-7 px-2 text-xs text-txt-muted hover:text-txt-primary cursor-pointer shrink-0"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                              <span className="text-[10px] text-txt-muted block px-0.5">
+                                Press Enter to save and select immediately for invoice.
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAddingNewUpi(true);
+                                if (upiSearchFilter.trim()) {
+                                  setNewUpiInput(upiSearchFilter.trim());
+                                }
+                                setTimeout(() => {
+                                  newUpiInputRef.current?.focus();
+                                }, 50);
+                              }}
+                              className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 text-txt-secondary hover:text-txt-primary transition-colors cursor-pointer text-xs"
+                            >
+                              <div className="flex items-center gap-1.5 font-bold text-[#2563EB]">
+                                <Plus className="h-3.5 w-3.5" />
+                                <span>+ Other / Add New UPI Account</span>
+                              </div>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 text-txt-muted font-medium">
+                                Custom
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[10px] text-txt-muted block mb-0.5">
+                        Rename / UPI Account Name <span className="text-[#57B71B] font-bold">(Updates in Dropdown)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={currentUpiAccount?.name || ''}
+                        onChange={(e) => handleUpdateCurrentUpi({ name: e.target.value })}
+                        placeholder="Type Account Name to rename..."
+                        className="w-full h-8 rounded-input border border-[#57B71B]/50 focus:border-[#57B71B] bg-white px-2 text-xs font-bold text-txt-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-txt-muted block mb-0.5">Payee Name</label>
+                      <input
+                        type="text"
+                        value={payment.upi.payeeName}
+                        onChange={(e) => handleUpdateCurrentUpi({ payeeName: e.target.value })}
+                        placeholder="e.g. Digitechzo Technologies"
+                        className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
+                      />
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -2661,47 +3229,108 @@ export const InvoicesPage: React.FC = () => {
                       <input
                         type="text"
                         value={payment.upi.upiId}
-                        onChange={(e) =>
-                          setPayment((p) => ({ ...p, upi: { ...p.upi, upiId: e.target.value } }))
-                        }
+                        onChange={(e) => handleUpdateCurrentUpi({ upiId: e.target.value })}
+                        placeholder="e.g. digitechzo@okicici"
                         className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs font-mono font-semibold"
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] text-txt-muted block mb-0.5">Payee Name</label>
+                      <label className="text-[10px] text-txt-muted block mb-0.5">Payment Note / Remark</label>
                       <input
                         type="text"
-                        value={payment.upi.payeeName}
-                        onChange={(e) =>
-                          setPayment((p) => ({ ...p, upi: { ...p.upi, payeeName: e.target.value } }))
-                        }
+                        value={payment.upi.note || ''}
+                        onChange={(e) => handleUpdateCurrentUpi({ note: e.target.value })}
+                        placeholder="e.g. Invoice Settlement"
                         className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
                       />
                     </div>
                   </div>
 
+                  <div className="flex items-center justify-between text-xs pt-0.5">
+                    <span className="text-[10px] text-txt-muted">
+                      💡 All edits to this UPI account are auto-saved to your preset list.
+                    </span>
+                    {savedUpiAccounts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedUpi(payment.upiPreset)}
+                        className="text-[11px] text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer font-semibold"
+                        title="Delete this UPI account from list"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete this UPI Account
+                      </button>
+                    )}
+                  </div>
+
                   {/* QR Image Option: Upload or Auto-generated */}
                   <div className="border border-slate-200 rounded-btn p-2.5 bg-slate-50 space-y-2">
-                    <span className="text-[11px] font-bold text-txt-primary block">UPI QR Code Source:</span>
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-txt-secondary flex-1 cursor-pointer">
-                        <span className="inline-block px-2.5 py-1 rounded border border-border bg-white hover:bg-slate-50 text-[11px] font-semibold">
-                          Upload Custom QR Image
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-txt-primary block">UPI QR Code Source:</span>
+                      {payment.showUpiQr === false ? (
+                        <span className="text-[10px] text-rose-600 font-semibold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          QR Code Removed
+                        </span>
+                      ) : payment.customUpiQr ? (
+                        <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          Custom Image
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium">Dynamic Auto-Generated</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="text-xs text-txt-secondary cursor-pointer">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-border bg-white hover:bg-slate-50 text-[11px] font-semibold text-txt-primary shadow-2xs">
+                          <Upload className="h-3 w-3" /> Upload Custom QR Image
                         </span>
                         <input type="file" accept="image/*" onChange={handleUpiQrUpload} className="hidden" />
                       </label>
+
+                      {/* Remove/Delete Icon Button */}
+                      {payment.showUpiQr !== false ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, showUpiQr: false, customUpiQr: '' }));
+                            showToast('UPI QR code removed from invoice');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-rose-200 bg-white hover:bg-rose-50 text-[11px] font-semibold text-rose-600 shadow-2xs transition-colors cursor-pointer"
+                          title="Remove QR code from invoice"
+                        >
+                          <Trash2 className="h-3 w-3 text-rose-500" /> Remove QR
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, showUpiQr: true }));
+                            showToast('UPI QR code enabled on invoice');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-[#57B71B]/30 bg-[#57B71B]/10 hover:bg-[#57B71B]/20 text-[11px] font-semibold text-[#57B71B] shadow-2xs transition-colors cursor-pointer"
+                        >
+                          <Plus className="h-3 w-3" /> Restore Dynamic QR
+                        </button>
+                      )}
+
                       {payment.customUpiQr && (
                         <button
                           type="button"
-                          onClick={() => setPayment((p) => ({ ...p, customUpiQr: '' }))}
-                          className="text-xs text-rose-600 hover:underline cursor-pointer"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, customUpiQr: '' }));
+                            showToast('Reverted to dynamic UPI QR');
+                          }}
+                          className="text-xs text-blue-600 hover:underline cursor-pointer font-medium"
                         >
                           Use Auto-Generated
                         </button>
                       )}
                     </div>
+
                     <p className="text-[10px] text-txt-muted">
-                      {payment.customUpiQr
+                      {payment.showUpiQr === false
+                        ? 'QR code removed. Only UPI ID and Payee text will appear on the invoice.'
+                        : payment.customUpiQr
                         ? 'Using uploaded QR code image.'
                         : 'Auto-generating dynamic UPI QR code compatible with PhonePe, GPay, Paytm & BHIM!'}
                     </p>
@@ -2722,42 +3351,287 @@ export const InvoicesPage: React.FC = () => {
                     <span>Enable Crypto Wallet Option on Invoice</span>
                   </label>
 
-                  <div>
+                  {/* Custom Searchable & Addable Crypto Wallet Dropdown */}
+                  <div className="relative" ref={cryptoDropdownRef}>
                     <label className="text-[11px] font-semibold text-[#57B71B] block mb-1">
-                      Quick Select Crypto Preset:
+                      Select or Add Crypto Wallet:
                     </label>
-                    <select
-                      value={payment.cryptoPreset}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === 'usdt_trc20') {
-                          setPayment((p) => ({ ...p, cryptoPreset: 'usdt_trc20', crypto: CRYPTO_PRESETS.usdt_trc20 }));
-                        } else if (val === 'usdt_erc20') {
-                          setPayment((p) => ({ ...p, cryptoPreset: 'usdt_erc20', crypto: CRYPTO_PRESETS.usdt_erc20 }));
-                        } else if (val === 'btc') {
-                          setPayment((p) => ({ ...p, cryptoPreset: 'btc', crypto: CRYPTO_PRESETS.btc }));
-                        } else {
-                          setPayment((p) => ({ ...p, cryptoPreset: 'custom' }));
-                        }
+
+                    {/* Trigger Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCryptoDropdownOpen((prev) => !prev);
+                        setIsAddingNewCrypto(false);
+                        setEditingCryptoId(null);
+                        setCryptoSearchFilter('');
+                        setTimeout(() => cryptoSearchInputRef.current?.focus(), 60);
                       }}
-                      className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary cursor-pointer"
+                      className="w-full h-9 rounded-btn border border-border bg-white px-2.5 text-xs text-txt-primary flex items-center justify-between hover:border-[#57B71B] transition-colors cursor-pointer text-left shadow-2xs"
                     >
-                      <option value="usdt_trc20">USDT (TRC20 - Tron)</option>
-                      <option value="usdt_erc20">USDT (ERC20 - Ethereum)</option>
-                      <option value="btc">Bitcoin (BTC Mainnet)</option>
-                      <option value="custom">✍️ Custom Wallet Address...</option>
-                    </select>
+                      <div className="flex items-center gap-2 truncate">
+                        <Wallet className="h-4 w-4 text-[#57B71B] shrink-0" />
+                        <span className="text-txt-primary font-bold truncate">
+                          {currentCryptoWallet?.name || payment.crypto.coin || 'Select or Add Crypto Wallet'}
+                        </span>
+                        {payment.crypto.coin && (
+                          <span className="text-[10px] text-txt-muted font-mono shrink-0">
+                            ({payment.crypto.coin})
+                          </span>
+                        )}
+                      </div>
+                      <ChevronDown
+                        className={`h-4 w-4 text-txt-muted shrink-0 transition-transform duration-200 ${
+                          isCryptoDropdownOpen ? 'rotate-180 text-[#57B71B]' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {isCryptoDropdownOpen && (
+                      <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-white border border-border rounded-card shadow-xl py-1 text-xs max-h-80 overflow-hidden flex flex-col animate-in fade-in-50 zoom-in-95 duration-100">
+                        {/* Search Header */}
+                        <div className="p-1.5 border-b border-border/60 bg-slate-50/50">
+                          <div className="relative flex items-center">
+                            <Search className="absolute left-2.5 h-3.5 w-3.5 text-txt-muted pointer-events-none" />
+                            <input
+                              ref={cryptoSearchInputRef}
+                              type="text"
+                              value={cryptoSearchFilter}
+                              onChange={(e) => setCryptoSearchFilter(e.target.value)}
+                              placeholder="Search crypto wallets or type to filter..."
+                              className="w-full h-7 rounded-input border border-border bg-white pl-8 pr-2 text-xs text-txt-primary placeholder:text-txt-muted focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Crypto Wallets List */}
+                        <div className="overflow-y-auto flex-1 py-1 max-h-48 divide-y divide-slate-100/60">
+                          <div className="px-2.5 py-1 text-[10px] font-semibold text-txt-muted uppercase tracking-wider flex items-center justify-between">
+                            <span>Saved Crypto Wallets ({savedCryptoWallets.length})</span>
+                            <span className="text-[9px] font-normal lowercase">click to select</span>
+                          </div>
+
+                          {savedCryptoWallets
+                            .filter((c) => {
+                              if (!c.name || c.name.trim() === '') return false;
+                              const q = cryptoSearchFilter.trim().toLowerCase();
+                              if (!q) return true;
+                              return (
+                                c.name.toLowerCase().includes(q) ||
+                                (c.coin || '').toLowerCase().includes(q) ||
+                                (c.network || '').toLowerCase().includes(q) ||
+                                (c.address || '').toLowerCase().includes(q)
+                              );
+                            })
+                            .map((c) => {
+                              const isSelected = payment.cryptoPreset === c.id;
+                              const isEditingThis = editingCryptoId === c.id;
+
+                              if (isEditingThis) {
+                                return (
+                                  <div key={c.id} className="p-1.5 bg-emerald-50/50 flex items-center gap-1.5">
+                                    <input
+                                      ref={editCryptoInputRef}
+                                      type="text"
+                                      value={editingCryptoName}
+                                      onChange={(e) => setEditingCryptoName(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          e.preventDefault();
+                                          handleSaveCryptoRename(c.id);
+                                        }
+                                        if (e.key === 'Escape') {
+                                          setEditingCryptoId(null);
+                                        }
+                                      }}
+                                      className="flex-1 h-7 rounded border border-[#57B71B] bg-white px-2 text-xs font-bold text-txt-primary focus:outline-none"
+                                      placeholder="Enter wallet name..."
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveCryptoRename(c.id)}
+                                      className="h-7 px-2 rounded bg-[#57B71B] hover:bg-[#469815] text-white text-[11px] font-bold cursor-pointer"
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingCryptoId(null)}
+                                      className="h-7 px-2 text-[11px] text-txt-muted hover:text-txt-primary cursor-pointer"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={c.id}
+                                  className={`w-full flex items-center justify-between px-2.5 py-2 hover:bg-slate-50 transition-colors group ${
+                                    isSelected ? 'bg-emerald-50/60 font-bold' : ''
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPayment((p) => ({
+                                        ...p,
+                                        cryptoPreset: c.id,
+                                        crypto: c,
+                                      }));
+                                      setIsCryptoDropdownOpen(false);
+                                      setCryptoSearchFilter('');
+                                      setIsAddingNewCrypto(false);
+                                    }}
+                                    className="flex-1 flex items-center gap-2 text-left truncate cursor-pointer mr-2"
+                                  >
+                                    <Wallet className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-[#57B71B]' : 'text-slate-400'}`} />
+                                    <span className={`truncate text-xs ${isSelected ? 'text-[#57B71B]' : 'text-txt-primary'}`}>
+                                      {c.name.trim()}
+                                    </span>
+                                    {c.coin && (
+                                      <span className="text-[10px] text-txt-muted font-mono shrink-0">
+                                        ({c.coin})
+                                      </span>
+                                    )}
+                                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-50 text-amber-700 border border-amber-200 shrink-0">
+                                      Custom
+                                    </span>
+                                  </button>
+
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    {isSelected && <Check className="h-4 w-4 text-[#57B71B] shrink-0 mr-1" />}
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingCryptoId(c.id);
+                                        setEditingCryptoName(c.name);
+                                        setTimeout(() => editCryptoInputRef.current?.focus(), 50);
+                                      }}
+                                      className="p-1 rounded hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+                                      title="Edit / Rename wallet name"
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                    </button>
+                                    {savedCryptoWallets.length > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleDeleteSavedCrypto(c.id);
+                                        }}
+                                        className="p-1 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-600 transition-colors cursor-pointer"
+                                        title="Remove this crypto wallet"
+                                      >
+                                        <Trash2 className="h-3 w-3" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+
+                        {/* Other / Add New Crypto Wallet Section */}
+                        <div className="border-t border-border/70 p-1.5 bg-slate-50/80">
+                          {isAddingNewCrypto ? (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  ref={newCryptoInputRef}
+                                  type="text"
+                                  value={newCryptoInput}
+                                  onChange={(e) => setNewCryptoInput(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      e.preventDefault();
+                                      handleAddNewCryptoConfirm();
+                                    }
+                                    if (e.key === 'Escape') {
+                                      setIsAddingNewCrypto(false);
+                                    }
+                                  }}
+                                  placeholder="Enter new wallet name (e.g. Polygon USDT)..."
+                                  className="flex-1 h-7 rounded-input border border-border bg-white px-2 text-xs text-txt-primary focus:outline-none focus:ring-1 focus:ring-[#57B71B]"
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleAddNewCryptoConfirm}
+                                  disabled={!newCryptoInput.trim()}
+                                  className="h-7 px-2.5 rounded-btn bg-[#57B71B] hover:bg-[#469815] text-white text-xs font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                >
+                                  Add
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsAddingNewCrypto(false);
+                                    setNewCryptoInput('');
+                                  }}
+                                  className="h-7 px-2 text-xs text-txt-muted hover:text-txt-primary cursor-pointer shrink-0"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                              <span className="text-[10px] text-txt-muted block px-0.5">
+                                Press Enter to save and select immediately for invoice.
+                              </span>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsAddingNewCrypto(true);
+                                if (cryptoSearchFilter.trim()) {
+                                  setNewCryptoInput(cryptoSearchFilter.trim());
+                                }
+                                setTimeout(() => {
+                                  newCryptoInputRef.current?.focus();
+                                }, 50);
+                              }}
+                              className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 text-txt-secondary hover:text-txt-primary transition-colors cursor-pointer text-xs"
+                            >
+                              <div className="flex items-center gap-1.5 font-bold text-[#2563EB]">
+                                <Plus className="h-3.5 w-3.5" />
+                                <span>+ Other / Add New Crypto Wallet</span>
+                              </div>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/60 text-txt-muted font-medium">
+                                Custom
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] text-txt-muted block mb-0.5">
+                        Rename / Wallet Name <span className="text-[#57B71B] font-bold">(Updates in Dropdown)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={currentCryptoWallet?.name || ''}
+                        onChange={(e) => handleUpdateCurrentCrypto({ name: e.target.value })}
+                        placeholder="Type Wallet Name to rename..."
+                        className="w-full h-8 rounded-input border border-[#57B71B]/50 focus:border-[#57B71B] bg-white px-2 text-xs font-bold text-txt-primary"
+                      />
+                    </div>
                     <div>
                       <label className="text-[10px] text-txt-muted block mb-0.5">Token / Coin</label>
                       <input
                         type="text"
                         value={payment.crypto.coin}
                         onChange={(e) =>
-                          setPayment((p) => ({ ...p, crypto: { ...p.crypto, coin: e.target.value } }))
+                          handleUpdateCurrentCrypto({ coin: e.target.value })
                         }
+                        placeholder="e.g. USDT (TRC20)"
                         className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
                       />
                     </div>
@@ -2767,8 +3641,9 @@ export const InvoicesPage: React.FC = () => {
                         type="text"
                         value={payment.crypto.network}
                         onChange={(e) =>
-                          setPayment((p) => ({ ...p, crypto: { ...p.crypto, network: e.target.value } }))
+                          handleUpdateCurrentCrypto({ network: e.target.value })
                         }
+                        placeholder="e.g. TRON (TRC20)"
                         className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
                       />
                     </div>
@@ -2780,10 +3655,101 @@ export const InvoicesPage: React.FC = () => {
                       type="text"
                       value={payment.crypto.address}
                       onChange={(e) =>
-                        setPayment((p) => ({ ...p, crypto: { ...p.crypto, address: e.target.value } }))
+                        handleUpdateCurrentCrypto({ address: e.target.value })
                       }
+                      placeholder="e.g. Txyz..."
                       className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs font-mono text-[11px]"
                     />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs pt-0.5">
+                    <span className="text-[10px] text-txt-muted">
+                      💡 All edits to this crypto wallet are auto-saved to your preset list.
+                    </span>
+                    {savedCryptoWallets.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedCrypto(payment.cryptoPreset)}
+                        className="text-[11px] text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer font-semibold"
+                        title="Delete this crypto wallet from list"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete this Crypto Wallet
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Crypto QR Code Source */}
+                  <div className="border border-slate-200 rounded-btn p-2.5 bg-slate-50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-txt-primary block">Crypto QR Code Source:</span>
+                      {payment.showCryptoQr === false ? (
+                        <span className="text-[10px] text-rose-600 font-semibold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          QR Code Removed
+                        </span>
+                      ) : payment.customCryptoQr ? (
+                        <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          Custom Image
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium">Dynamic Auto-Generated</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="text-xs text-txt-secondary cursor-pointer">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-border bg-white hover:bg-slate-50 text-[11px] font-semibold text-txt-primary shadow-2xs">
+                          <Upload className="h-3 w-3" /> Upload Custom QR Image
+                        </span>
+                        <input type="file" accept="image/*" onChange={handleCryptoQrUpload} className="hidden" />
+                      </label>
+
+                      {/* Remove/Delete Icon Button */}
+                      {payment.showCryptoQr !== false ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, showCryptoQr: false, customCryptoQr: '' }));
+                            showToast('Crypto QR code removed from invoice');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-rose-200 bg-white hover:bg-rose-50 text-[11px] font-semibold text-rose-600 shadow-2xs transition-colors cursor-pointer"
+                          title="Remove QR code from invoice"
+                        >
+                          <Trash2 className="h-3 w-3 text-rose-500" /> Remove QR
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, showCryptoQr: true }));
+                            showToast('Crypto QR code enabled on invoice');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-[#57B71B]/30 bg-[#57B71B]/10 hover:bg-[#57B71B]/20 text-[11px] font-semibold text-[#57B71B] shadow-2xs transition-colors cursor-pointer"
+                        >
+                          <Plus className="h-3 w-3" /> Restore Dynamic QR
+                        </button>
+                      )}
+
+                      {payment.customCryptoQr && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, customCryptoQr: '' }));
+                            showToast('Reverted to dynamic Crypto QR');
+                          }}
+                          className="text-xs text-blue-600 hover:underline cursor-pointer font-medium"
+                        >
+                          Use Auto-Generated
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="text-[10px] text-txt-muted">
+                      {payment.showCryptoQr === false
+                        ? 'QR code removed. Only Wallet Address text will appear on the invoice.'
+                        : payment.customCryptoQr
+                        ? 'Using uploaded wallet QR code image.'
+                        : 'Auto-generating dynamic Crypto wallet QR code directly from recipient address!'}
+                    </p>
                   </div>
                 </div>
               )}
@@ -2907,27 +3873,97 @@ export const InvoicesPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <div>
-                  <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">
-                    Authorized Signatory Name
+              <div className="pt-2 border-t border-border">
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
+                  <label className="text-[11px] font-bold text-txt-primary flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showSignatureBlock}
+                      onChange={(e) => setShowSignatureBlock(e.target.checked)}
+                      className="rounded text-[#57B71B] focus:ring-[#57B71B]"
+                    />
+                    <span>Include Digital Authorization Section</span>
                   </label>
-                  <input
-                    type="text"
-                    value={signature.name}
-                    onChange={(e) => setSignature({ ...signature, name: e.target.value })}
-                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
-                  />
+                  {showSignatureBlock && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSignatureBlock(false)}
+                      className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                    >
+                      Remove Section
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">Designation / Role</label>
-                  <input
-                    type="text"
-                    value={signature.role}
-                    onChange={(e) => setSignature({ ...signature, role: e.target.value })}
-                    className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
-                  />
-                </div>
+
+                {showSignatureBlock && (
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">
+                          Authorized Signatory Name
+                        </label>
+                        <input
+                          type="text"
+                          value={signature.name}
+                          onChange={(e) => setSignature({ ...signature, name: e.target.value })}
+                          className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">Designation / Role</label>
+                        <input
+                          type="text"
+                          value={signature.role}
+                          onChange={(e) => setSignature({ ...signature, role: e.target.value })}
+                          className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Signature Image Upload / Preview in Editor */}
+                    <div>
+                      <label className="text-[11px] font-semibold text-txt-secondary block mb-1">
+                        Signatory Signature Image (Optional)
+                      </label>
+                      {signature.signatureImage ? (
+                        <div className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-200 rounded-md">
+                          <img
+                            src={signature.signatureImage}
+                            alt="Signature"
+                            className="h-9 max-w-[120px] object-contain bg-white border border-slate-200 rounded p-1"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setSignature({ ...signature, signatureImage: '' })}
+                            className="text-xs font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
+                          >
+                            Remove Signature
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn border border-dashed border-slate-300 hover:border-[#57B71B] bg-slate-50 hover:bg-emerald-50/40 text-xs font-semibold text-slate-700 transition-colors cursor-pointer w-fit">
+                          <Upload className="h-3.5 w-3.5 text-slate-500" />
+                          <span>+ Upload Signature Image</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  setSignature((s) => ({ ...s, signatureImage: reader.result as string }));
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </details>
@@ -2938,7 +3974,7 @@ export const InvoicesPage: React.FC = () => {
         {/* ========================================================= */}
         <div
           ref={invoiceContainerRef}
-          className={`space-y-3 pb-8 ${
+          className={`space-y-3 pb-8 print:!p-0 print:!m-0 print:!space-y-0 invoice-preview-column print:!block ${
             studioViewMode === 'editor'
               ? 'hidden'
               : studioViewMode === 'split'
@@ -2946,45 +3982,12 @@ export const InvoicesPage: React.FC = () => {
               : 'w-full max-w-4xl mx-auto'
           }`}
         >
-          {/* Synchronized Live Status Bar */}
-          <div className="no-print flex items-center justify-between px-3.5 py-2 bg-slate-100/95 border border-slate-200/90 rounded-xl text-xs shadow-2xs">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1.5 font-bold text-slate-700 text-[11px]">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#57B71B] opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-[#57B71B]"></span>
-                </span>
-                <span>Live Synchronized Client Document</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              {studioViewMode === 'preview' && (
-                <button
-                  type="button"
-                  onClick={() => setStudioViewMode('editor')}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-btn text-[11px] font-bold bg-[#57B71B] hover:bg-[#469815] text-white transition-colors cursor-pointer shadow-2xs"
-                >
-                  <Edit2 className="h-3 w-3" /> Back to Editor
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-btn text-[11px] font-bold bg-white hover:bg-slate-50 border border-slate-200 text-slate-800 transition-colors cursor-pointer shadow-2xs"
-              >
-                <Printer className="h-3 w-3 text-slate-600" /> Print / PDF
-              </button>
-            </div>
-          </div>
-
           {/* THE REAL INVOICE PAPER (Target for Print & PDF) */}
-          <div className="overflow-x-auto pb-4">
+          <div className="overflow-x-auto pb-4 print:!p-0 print:!m-0 print:!overflow-visible">
             <div
               id="invoiceDocument"
-              className="bg-white rounded-2xl border border-slate-200/90 shadow-xl p-6 sm:p-8 min-w-[650px] relative font-sans text-slate-800 overflow-hidden"
+              className="bg-white rounded-2xl border border-slate-200/90 shadow-xl p-6 sm:p-8 min-w-[650px] print:!min-w-0 print:!min-h-0 print:!h-auto print:!p-0 print:!m-0 print:!border-none print:!shadow-none flex flex-col justify-between relative font-sans text-slate-800"
             >
-              {/* Top Accent Strip */}
-              <div className="absolute top-0 left-0 right-0 h-1.5 bg-[#57B71B]" />
               {/* Draft Watermark Badge */}
               {meta.status === 'DRAFT' && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-10">
@@ -2995,39 +3998,39 @@ export const InvoicesPage: React.FC = () => {
               )}
 
               {/* 1. Header: Brand Info & Invoice Title */}
-              <div className="flex flex-col sm:flex-row items-start justify-between gap-6 pb-6 border-b border-slate-100 relative">
+              <div className="invoice-header flex flex-col sm:flex-row items-start justify-between gap-5 pb-5 border-b border-slate-200/80 relative">
                 <div className="flex items-start gap-4">
                   {sender.logo ? (
                     <img
                       src={sender.logo}
                       alt={sender.name}
-                      style={{ height: `${sender.logoHeight || 52}px` }}
-                      className="max-w-[220px] object-contain transition-all rounded-md"
+                      style={{ height: `${sender.logoHeight || 48}px` }}
+                      className="max-w-[200px] object-contain transition-all rounded-md"
                     />
                   ) : (
-                    <div className="h-12 w-12 rounded-xl bg-gradient-to-tr from-[#57B71B] to-emerald-400 flex items-center justify-center text-white font-black text-xl shadow-sm">
+                    <div className="h-12 w-12 rounded-xl bg-[#57B71B] flex items-center justify-center text-white font-black text-2xl shadow-xs shrink-0">
                       {(sender.name || 'D').charAt(0)}
                     </div>
                   )}
                   <div>
-                    <h2 className="text-xl font-extrabold text-slate-900 tracking-tight leading-snug">
-                      {sender.name || 'Digitechzo Technologies'}
+                    <h2 className="text-xl font-black text-slate-900 tracking-tight leading-snug">
+                      {sender.name || 'Digitechzo'}
                     </h2>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-sm">{sender.address}</p>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed max-w-sm">{sender.address}</p>
                     <p className="text-xs text-slate-500 mt-0.5 font-medium">
                       {sender.email} <span className="text-slate-300">•</span> {sender.phone}
                     </p>
                     {sender.taxId && (
-                      <p className="text-[11px] font-bold text-slate-700 mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 border border-slate-200/70">
-                        <span className="text-slate-400 uppercase font-semibold text-[9px]">TAX ID:</span> {sender.taxId}
+                      <p className="text-[11px] font-bold text-slate-800 mt-1.5 inline-flex items-center gap-1.5 px-3 py-0.5 rounded-md bg-slate-50 border border-slate-200">
+                        <span className="text-slate-400 uppercase font-bold text-[9px] tracking-wider">TAX ID / GSTIN:</span> {sender.taxId}
                       </p>
                     )}
                   </div>
                 </div>
 
                 <div className="text-left sm:text-right shrink-0">
-                  <div className="inline-block">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-[#57B71B] block sm:text-right">
+                  <div className="inline-block sm:text-right">
+                    <span className="text-[10.5px] font-black uppercase tracking-widest text-[#57B71B] block sm:text-right">
                       OFFICIAL STATEMENT
                     </span>
                     <h1
@@ -3037,9 +4040,9 @@ export const InvoicesPage: React.FC = () => {
                       TAX INVOICE
                     </h1>
                   </div>
-                  <div className="mt-2 flex items-center sm:justify-end">
+                  <div className="mt-2.5 flex items-center sm:justify-end">
                     <span
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold uppercase tracking-wider shadow-2xs ${
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
                         meta.status === 'PAID'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : meta.status === 'PARTIALLY_PAID'
@@ -3052,7 +4055,7 @@ export const InvoicesPage: React.FC = () => {
                       }`}
                     >
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${
+                        className={`h-2 w-2 rounded-full ${
                           meta.status === 'PAID'
                             ? 'bg-emerald-500'
                             : meta.status === 'PARTIALLY_PAID'
@@ -3071,26 +4074,26 @@ export const InvoicesPage: React.FC = () => {
               </div>
 
               {/* 2. Metadata Grid: Bill To (Left) & Invoice Meta Card (Right) */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 py-6 border-b border-slate-100 items-stretch">
+              <div className="invoice-meta-grid grid grid-cols-12 gap-4 py-3 border-b border-slate-100 items-stretch">
                 {/* Client Profile Card */}
-                <div className="md:col-span-7 bg-slate-50/70 hover:bg-slate-50 p-4 rounded-xl border border-slate-200/80 transition-colors flex flex-col justify-between">
+                <div className="col-span-7 invoice-meta-left invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between">
                   <div>
-                    <div className="flex items-center gap-1.5 mb-2">
+                    <div className="flex items-center gap-1.5 mb-1.5">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Billed Client / Recipient
+                        Billed Recipient
                       </span>
                     </div>
                     <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
                       {client.name || 'Client Company Name'}
                     </h3>
                     {client.contact && (
-                      <p className="text-xs text-slate-700 mt-0.5 font-semibold">Attn: {client.contact}</p>
+                      <p className="text-xs text-slate-700 mt-1 font-semibold">Attn: {client.contact}</p>
                     )}
                     {client.address && (
                       <p className="text-xs text-slate-500 mt-1 leading-relaxed">{client.address}</p>
                     )}
                   </div>
-                  <div className="pt-3 mt-3 border-t border-slate-200/60 flex flex-wrap items-center gap-3 text-xs text-slate-600 font-medium">
+                  <div className="pt-2.5 mt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs text-slate-600 font-medium">
                     {client.email && (
                       <span className="flex items-center gap-1">
                         <span className="text-slate-400">Email:</span> {client.email}
@@ -3105,63 +4108,71 @@ export const InvoicesPage: React.FC = () => {
                 </div>
 
                 {/* Right Invoice Details Badge Card */}
-                <div className="md:col-span-5 bg-gradient-to-br from-white to-slate-50 rounded-xl p-4 border border-slate-200/90 shadow-2xs space-y-2 text-xs flex flex-col justify-between">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-                      <span className="text-slate-500 font-semibold text-[11px]">Invoice Number:</span>
-                      <span className="font-black text-slate-900 font-tabular text-xs tracking-tight">{meta.number}</span>
-                    </div>
-                    {meta.poNumber && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 font-medium text-[11px]">P.O. / Ref #:</span>
-                        <span className="font-semibold text-slate-800">{meta.poNumber}</span>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-500 font-medium text-[11px]">Invoice Date:</span>
-                      <span className="font-semibold text-slate-800 font-tabular">{formatDate(meta.date)}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[11px] text-slate-500">
-                      <span>Payment Terms:</span>
-                      <span className="font-semibold text-slate-700">
-                        {meta.paymentTermsDays === '0'
-                          ? 'Due on Receipt'
-                          : meta.paymentTermsDays === 'custom'
-                          ? 'Custom Terms'
-                          : `Net ${meta.paymentTermsDays} Days`}
+                <div className="col-span-5 invoice-meta-right invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between overflow-hidden relative">
+                  <div>
+                    <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Invoice Details
                       </span>
+                      <span className="text-xs font-semibold text-slate-400">₹</span>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium text-[11px]">Invoice Number:</span>
+                        <span className="font-extrabold text-slate-900 text-xs tracking-tight">{meta.number}</span>
+                      </div>
+                      {meta.poNumber && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-500 font-medium text-[11px]">P.O. / Ref #:</span>
+                          <span className="font-semibold text-slate-800">{meta.poNumber}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500 font-medium text-[11px]">Invoice Date:</span>
+                        <span className="font-semibold text-slate-800 font-tabular">{formatDate(meta.date)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>Payment Terms:</span>
+                        <span className="font-semibold text-slate-700">
+                          {meta.paymentTermsDays === '0'
+                            ? 'Due on Receipt'
+                            : meta.paymentTermsDays === 'custom'
+                            ? 'Custom Terms'
+                            : `Net ${meta.paymentTermsDays} Days`}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-500">
+                        <span>Issued By:</span>
+                        <span className="font-semibold text-slate-700">{meta.issuedBy || 'DigiTechzo Administrator'}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-rose-100 bg-rose-50/50 -mx-4 -mb-4 p-3 rounded-b-xl flex items-center justify-between">
+                  <div className="mt-2.5 pt-2 border-t border-rose-100 bg-rose-50/80 -mx-4.5 -mb-4.5 px-4.5 py-2.5 rounded-b-xl flex items-center justify-between">
                     <span className="text-rose-900 font-extrabold text-[11px] uppercase tracking-wider">
-                      Payment Due:
+                      Payment Due Date:
                     </span>
-                    <span className="font-black text-rose-600 font-tabular text-sm">{formatDate(meta.dueDate)}</span>
+                    <span className="font-black text-rose-600 font-tabular text-xs">{formatDate(meta.dueDate)}</span>
                   </div>
                 </div>
               </div>
 
               {/* 3. Items Table */}
-              <div className="py-4">
+              <div className="invoice-table-section py-2">
                 <table className="w-full text-left border-collapse text-xs table-auto">
                   <thead>
-                    <tr
-                      className="border-b border-slate-200 text-white font-bold"
-                      style={{ backgroundColor: activeTheme?.primary || '#57B71B' }}
-                    >
-                      <th className="py-3 px-3.5 rounded-l w-12 text-center whitespace-nowrap">#</th>
-                      <th className="py-3 px-3.5 whitespace-nowrap">Description & Service Details</th>
+                    <tr className="bg-slate-900 text-white font-extrabold text-[10.5px] uppercase tracking-wider">
+                      <th className="py-2.5 px-3.5 rounded-l w-10 text-center whitespace-nowrap">#</th>
+                      <th className="py-2.5 px-3.5 whitespace-nowrap">Description & Service Details</th>
                       {enableQtyColumn && (
-                        <th className="py-3 px-3 text-center whitespace-nowrap w-16">Qty</th>
+                        <th className="py-2.5 px-2.5 text-center whitespace-nowrap w-14">Qty</th>
                       )}
-                      {/* Custom Columns (if enabled in preview) */}
                       {customColumns
                         .filter((c) => c.showInPreview)
                         .map((col) => (
                           <th
                             key={col.id}
-                            className={`py-3 px-3.5 whitespace-nowrap ${
+                            className={`py-2.5 px-3 whitespace-nowrap ${
                               col.type === 'number' || col.type === 'currency' ? 'text-right' : 'text-left'
                             }`}
                           >
@@ -3170,7 +4181,7 @@ export const InvoicesPage: React.FC = () => {
                         ))}
                       {enablePriceColumn && (
                         <th
-                          className={`py-3 px-3.5 text-right whitespace-nowrap min-w-[120px] ${
+                          className={`py-2.5 px-3.5 text-right whitespace-nowrap min-w-[110px] ${
                             !enableAdvanceColumn ? 'rounded-r' : ''
                           }`}
                         >
@@ -3178,7 +4189,7 @@ export const InvoicesPage: React.FC = () => {
                         </th>
                       )}
                       {enableAdvanceColumn && (
-                        <th className="py-3 px-3.5 rounded-r text-right whitespace-nowrap min-w-[145px]">
+                        <th className="py-2.5 px-3.5 rounded-r text-right whitespace-nowrap min-w-[130px]">
                           Advanced Amount
                         </th>
                       )}
@@ -3192,20 +4203,19 @@ export const InvoicesPage: React.FC = () => {
                         : (advancePercent > 0 ? Math.round((lineAmount * advancePercent) / 100) : 0);
                       return (
                         <tr key={item.id} className="hover:bg-slate-50/50 group">
-                          <td className="py-3 px-3.5 text-center text-slate-400 font-mono align-top">{idx + 1}</td>
+                          <td className="py-3 px-3.5 text-center text-slate-400 font-medium text-xs align-top">{idx + 1}</td>
                           <td className="py-3 px-3.5 align-top">
-                            <div className="font-bold text-slate-900 leading-snug break-words">{item.description}</div>
+                            <div className="font-extrabold text-slate-900 text-xs leading-snug break-words">{item.description}</div>
                             {item.subdesc && (
-                              <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed break-words">{item.subdesc}</div>
+                              <div className="text-[11px] text-slate-500 mt-1 leading-relaxed break-words">{item.subdesc}</div>
                             )}
                           </td>
                           {enableQtyColumn && (
-                            <td className="py-3 px-3 text-center font-tabular font-medium text-slate-700 align-top whitespace-nowrap">
+                            <td className="py-3 px-2.5 text-center font-bold text-slate-800 text-xs align-top whitespace-nowrap">
                               {item.quantity}
                             </td>
                           )}
 
-                          {/* Custom Columns Data Cells */}
                           {customColumns
                             .filter((c) => c.showInPreview)
                             .map((col) => {
@@ -3219,7 +4229,7 @@ export const InvoicesPage: React.FC = () => {
                               return (
                                 <td
                                   key={col.id}
-                                  className={`py-3 px-3.5 align-top whitespace-nowrap font-medium ${
+                                  className={`py-3 px-3 align-top whitespace-nowrap font-medium text-xs ${
                                     isNum || isCurr ? 'text-right font-tabular text-slate-800' : 'text-left text-slate-600'
                                   }`}
                                 >
@@ -3229,12 +4239,12 @@ export const InvoicesPage: React.FC = () => {
                             })}
 
                           {enablePriceColumn && (
-                            <td className="py-3 px-3.5 text-right font-tabular font-bold text-slate-900 align-top whitespace-nowrap">
+                            <td className="py-3 px-3.5 text-right font-black text-slate-900 text-xs align-top whitespace-nowrap font-tabular">
                               {formatCurrency(lineAmount, meta.currency)}
                             </td>
                           )}
                           {enableAdvanceColumn && (
-                            <td className="py-3 px-3.5 text-right font-tabular font-extrabold text-emerald-600 align-top whitespace-nowrap">
+                            <td className="py-3 px-3.5 text-right font-black text-[#57B71B] text-xs align-top whitespace-nowrap font-tabular">
                               {formatCurrency(itemAdvance, meta.currency)}
                             </td>
                           )}
@@ -3245,13 +4255,13 @@ export const InvoicesPage: React.FC = () => {
                 </table>
 
                 {/* Quick Add Row shortcut directly below table (hidden on print) */}
-                <div className="no-print mt-2.5 flex items-center justify-between">
+                <div className="no-print mt-2 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={handleAddItem}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn border border-dashed border-[#57B71B] bg-emerald-50/60 hover:bg-emerald-100/80 text-[#57B71B] text-xs font-bold transition-all cursor-pointer shadow-2xs"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-btn border border-dashed border-[#57B71B] bg-emerald-50/60 hover:bg-emerald-100/80 text-[#57B71B] text-xs font-bold transition-all cursor-pointer shadow-2xs"
                   >
-                    <Plus className="h-3.5 w-3.5" /> + Add Another Item / Service Row
+                    <Plus className="h-3 w-3" /> + Add Another Item / Service Row
                   </button>
                   <span className="text-[11px] text-slate-400 font-medium">
                     {items.length} {items.length === 1 ? 'service item' : 'service items'}
@@ -3259,266 +4269,327 @@ export const InvoicesPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 4. Payment Details (Left) & Totals Breakdown (Right) */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-4 border-t border-slate-200">
-                {/* Left (7 Cols): Payment Details with Interactive Switcher */}
-                <div className="md:col-span-7 space-y-2.5">
-                  <div className="flex items-center justify-between">
+              {/* 4. Payment Details (Left) & Financial Summary (Right) - SIDE BY SIDE */}
+              <div className="invoice-payment-grid grid grid-cols-12 gap-4 py-2 border-t border-slate-100 items-stretch">
+                {/* Left (7 Cols): Payment Instructions */}
+                <div className="col-span-7 invoice-payment-left invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full space-y-2.5">
+                  <div className="flex items-center justify-between pb-1 border-b border-slate-100">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                      Payment Details (Click to select method):
+                      PAYMENT INSTRUCTIONS
                     </span>
                   </div>
 
-                  {/* Payment selector tabs on paper */}
-                  <div className="flex rounded-btn bg-slate-100 p-0.5 border border-slate-200 text-xs">
+                  <div className="space-y-2 flex-1 flex flex-col justify-center">
+                    {/* Bank Transfer Block */}
                     {payment.enableBank && (
-                      <button
-                        type="button"
-                        onClick={() => setPayment((p) => ({ ...p, activeTab: 'bank' }))}
-                        className={`flex-1 py-1 rounded text-center font-bold text-[11px] cursor-pointer ${
-                          payment.activeTab === 'bank' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
-                        }`}
-                      >
-                        Bank Transfer
-                      </button>
+                      <div className="invoice-payment-block p-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 text-xs space-y-1">
+                        <div className="text-[10px] font-black uppercase text-slate-700 tracking-wider mb-0.5">
+                          BANK TRANSFER DETAILS
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] leading-tight">
+                          <div>
+                            <span className="text-slate-400">Bank:</span>{' '}
+                            <strong className="text-slate-800">{payment.bank.bankName || 'HDFC Corporate Banking'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">Account:</span>{' '}
+                            <strong className="text-slate-800">{payment.bank.accountName || 'Digitechzo Media & Technologies Pvt Ltd'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">A/C No:</span>{' '}
+                            <strong className="text-slate-900 font-bold tracking-normal">{payment.bank.accountNumber || '50200098765432'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-slate-400">IFSC/SWIFT:</span>{' '}
+                            <strong className="text-slate-900 font-bold tracking-normal">{payment.bank.ifscSwift || 'HDFC0001234'}</strong>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-slate-400">Branch:</span>{' '}
+                            <span className="text-slate-600">{payment.bank.branch || 'IT Park Phase 2, Chennai'}</span>
+                          </div>
+                        </div>
+                      </div>
                     )}
+
+                    {/* UPI Block */}
                     {payment.enableUpi && (
-                      <button
-                        type="button"
-                        onClick={() => setPayment((p) => ({ ...p, activeTab: 'upi' }))}
-                        className={`flex-1 py-1 rounded text-center font-bold text-[11px] cursor-pointer ${
-                          payment.activeTab === 'upi' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
-                        }`}
-                      >
-                        UPI Pay / QR
-                      </button>
+                      <div className="invoice-payment-block p-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 text-xs flex items-center justify-between gap-3">
+                        {upiQrUrl && (
+                          <div className="shrink-0 text-center">
+                            <img
+                              src={upiQrUrl}
+                              alt="UPI QR"
+                              className="h-10 w-10 object-contain mx-auto border border-slate-200 rounded p-0.5 bg-white"
+                            />
+                            <span className="text-[8px] text-slate-400 font-bold block">UPI Scan</span>
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                            UPI PAYMENT (GPAY, PHONEPE, PAYTM, BHIM)
+                          </div>
+                          <div className="flex items-center gap-3 text-[11px] mt-1">
+                            <span>
+                              <span className="text-slate-400">UPI ID:</span>{' '}
+                              <strong className="font-extrabold text-slate-900 tracking-normal">
+                                {payment.upi.upiId || 'digitechzo@okicici'}
+                              </strong>
+                            </span>
+                            <span>
+                              <span className="text-slate-400">Payee:</span>{' '}
+                              <strong className="text-slate-800">{payment.upi.payeeName || 'Digitechzo'}</strong>
+                            </span>
+                          </div>
+                        </div>
+                        <div className="no-print">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(payment.upi.upiId || 'digitechzo@okicici', 'upi')}
+                            className="h-6 w-6 rounded bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer shadow-2xs"
+                            title="Copy UPI ID"
+                          >
+                            {copiedKey === 'upi' ? (
+                              <Check className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-slate-500" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
                     )}
+
+                    {/* Crypto Wallet Block */}
                     {payment.enableCrypto && (
-                      <button
-                        type="button"
-                        onClick={() => setPayment((p) => ({ ...p, activeTab: 'crypto' }))}
-                        className={`flex-1 py-1 rounded text-center font-bold text-[11px] cursor-pointer ${
-                          payment.activeTab === 'crypto' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-500'
-                        }`}
-                      >
-                        Crypto Wallet
-                      </button>
+                      <div className="invoice-payment-block p-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 text-xs flex items-center gap-3">
+                        {cryptoQrUrl && (
+                          <div className="shrink-0 text-center">
+                            <img
+                              src={cryptoQrUrl}
+                              alt="Crypto QR"
+                              className="h-10 w-10 object-contain mx-auto border border-slate-200 rounded p-0.5 bg-white"
+                            />
+                            <span className="text-[8px] text-slate-400 font-bold block">Crypto Scan</span>
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
+                            CRYPTO WALLET PAYMENT
+                          </div>
+                          <div className="text-[11px] text-slate-700 mt-0.5 leading-tight">
+                            <span className="text-slate-400">Token/Network:</span>{' '}
+                            <strong className="text-slate-900">
+                              {payment.crypto.coin} ({payment.crypto.network})
+                            </strong>
+                          </div>
+                          <div className="text-[11px] text-slate-700 mt-1 flex items-center gap-1.5 truncate">
+                            <span className="text-slate-400">Address:</span>{' '}
+                            <span className="text-xs font-bold text-slate-900 tracking-normal truncate">
+                              {payment.crypto.address}
+                            </span>
+                            <div className="no-print shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(payment.crypto.address, 'crypto')}
+                                className="h-5 w-5 rounded bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer shadow-2xs"
+                                title="Copy Address"
+                              >
+                                {copiedKey === 'crypto' ? (
+                                  <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-2.5 w-2.5 text-slate-500" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </div>
-
-                  {/* Payment Card: Bank */}
-                  {payment.activeTab === 'bank' && payment.enableBank && (
-                    <div className="p-3.5 rounded-btn bg-slate-50 border border-slate-200 text-xs space-y-1 leading-relaxed">
-                      <div>
-                        <span className="text-slate-500">Bank Name:</span>{' '}
-                        <strong className="text-slate-900">{payment.bank.bankName}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Account Name:</span>{' '}
-                        <strong className="text-slate-900">{payment.bank.accountName}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Account #:</span>{' '}
-                        <strong className="text-slate-900 font-mono">{payment.bank.accountNumber}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">IFSC / SWIFT:</span>{' '}
-                        <strong className="text-slate-900 font-mono">{payment.bank.ifscSwift}</strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Branch:</span>{' '}
-                        <span className="text-slate-700">{payment.bank.branch}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Payment Card: UPI with live QR Code & Copy */}
-                  {payment.activeTab === 'upi' && payment.enableUpi && (
-                    <div className="p-3 rounded-btn bg-slate-50 border border-slate-200 flex items-center gap-3.5">
-                      {upiQrUrl && (
-                        <div className="p-1 bg-white border border-slate-200 rounded-btn shrink-0 text-center">
-                          <img src={upiQrUrl} alt="UPI QR Code" className="h-24 w-24 object-contain mx-auto" />
-                          <span className="text-[9px] text-slate-400 font-bold block mt-0.5">Scan to Pay</span>
-                        </div>
-                      )}
-                      <div className="space-y-1 text-xs min-w-0">
-                        <div>
-                          <span className="text-slate-500 text-[11px] block">UPI ID / VPA:</span>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <code className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200 font-mono text-[11px]">
-                              {payment.upi.upiId}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(payment.upi.upiId, 'upi')}
-                              className="h-6 w-6 rounded bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer"
-                              title="Copy UPI ID"
-                            >
-                              {copiedKey === 'upi' ? (
-                                <Check className="h-3 w-3 text-emerald-600" />
-                              ) : (
-                                <Copy className="h-3 w-3 text-slate-600" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-slate-500">Payee:</span>{' '}
-                          <strong className="text-slate-800">{payment.upi.payeeName}</strong>
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          Works with GPay, PhonePe, Paytm, BHIM & all UPI apps
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Payment Card: Crypto with QR Code & Copy */}
-                  {payment.activeTab === 'crypto' && payment.enableCrypto && (
-                    <div className="p-3 rounded-btn bg-slate-50 border border-slate-200 flex items-center gap-3.5">
-                      {cryptoQrUrl && (
-                        <div className="p-1 bg-white border border-slate-200 rounded-btn shrink-0 text-center">
-                          <img src={cryptoQrUrl} alt="Crypto QR" className="h-24 w-24 object-contain mx-auto" />
-                          <span className="text-[9px] text-slate-400 font-bold block mt-0.5">Scan Address</span>
-                        </div>
-                      )}
-                      <div className="space-y-1 text-xs min-w-0 flex-1">
-                        <div>
-                          <span className="text-slate-500">Coin / Network:</span>{' '}
-                          <strong className="text-slate-900">
-                            {payment.crypto.coin} ({payment.crypto.network})
-                          </strong>
-                        </div>
-                        <div>
-                          <span className="text-slate-500 text-[11px] block">Wallet Address:</span>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <code className="font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-200 font-mono text-[10px] truncate max-w-[200px]">
-                              {payment.crypto.address}
-                            </code>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(payment.crypto.address, 'crypto')}
-                              className="h-6 w-6 rounded bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer shrink-0"
-                              title="Copy Address"
-                            >
-                              {copiedKey === 'crypto' ? (
-                                <Check className="h-3 w-3 text-emerald-600" />
-                              ) : (
-                                <Copy className="h-3 w-3 text-slate-600" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
-                {/* Right (5 Cols): Totals Breakdown */}
-                <div className="md:col-span-5 space-y-1.5 text-xs text-right">
-                  <div className="flex justify-between text-slate-600">
-                    <span>Subtotal</span>
-                    <span className="font-tabular font-medium">{formatCurrency(subtotal, meta.currency)}</span>
-                  </div>
-
-                  {discountRate > 0 && (
-                    <div className="flex justify-between text-emerald-600 font-medium">
-                      <span>Discount ({discountRate}%)</span>
-                      <span className="font-tabular">-{formatCurrency(discountAmount, meta.currency)}</span>
-                    </div>
-                  )}
-
-                  {taxRate > 0 && (
-                    <div className="flex justify-between text-slate-600">
-                      <span>GST / Tax ({taxRate}%)</span>
-                      <span className="font-tabular font-medium">+{formatCurrency(taxAmount, meta.currency)}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between pt-2 border-t border-slate-300 text-sm font-bold text-slate-900">
-                    <span>Invoice Total</span>
-                    <span className="font-tabular text-base font-black" style={{ color: activeTheme?.primary || '#57B71B' }}>
-                      {formatCurrency(grandTotal, meta.currency)}
-                    </span>
-                  </div>
-
-                  {totalAdvance > 0 && (
-                    <div className="flex justify-between text-emerald-700 font-bold pt-1.5">
-                      <span>Total Advanced Amount</span>
-                      <span className="font-tabular font-extrabold text-emerald-600">
-                        {formatCurrency(totalAdvance, meta.currency)}
+                {/* Right (5 Cols): Financial Summary */}
+                <div className="col-span-5 invoice-payment-right invoice-card invoice-totals-block bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full">
+                  <div>
+                    <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        FINANCIAL SUMMARY
                       </span>
+                      <span className="text-xs font-semibold text-slate-400">₹</span>
                     </div>
-                  )}
 
-                  {totalAdvance > 0 && (
-                    <div className="flex justify-between pt-1.5 border-t-2 border-dashed border-slate-300 text-sm font-black text-rose-600">
-                      <span>Balance Due</span>
-                      <span className="font-tabular font-extrabold">{formatCurrency(balanceDue, meta.currency)}</span>
+                    <div className="space-y-2 text-xs py-1">
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span className="font-medium text-xs">Subtotal</span>
+                        <span className="font-tabular font-bold text-slate-900 text-xs">{formatCurrency(subtotal, meta.currency)}</span>
+                      </div>
+
+                      {discountRate > 0 && (
+                        <div className="flex justify-between items-center text-emerald-700 font-semibold px-2 py-0.5 -mx-2 rounded bg-emerald-50/50">
+                          <span className="text-xs">Discount ({discountRate}%)</span>
+                          <span className="font-tabular font-bold text-xs">-{formatCurrency(discountAmount, meta.currency)}</span>
+                        </div>
+                      )}
+
+                      {taxRate > 0 && (
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span className="text-xs">GST / Tax ({taxRate}%)</span>
+                          <span className="font-tabular font-semibold text-slate-800 text-xs">+{formatCurrency(taxAmount, meta.currency)}</span>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs font-bold text-slate-900">
+                        <span className="font-bold text-xs uppercase tracking-wide">Invoice Total</span>
+                        <span className="font-tabular font-black text-sm text-slate-900">
+                          {formatCurrency(grandTotal, meta.currency)}
+                        </span>
+                      </div>
+
+                      {totalAdvance > 0 && (
+                        <div className="flex justify-between items-center text-emerald-700 font-bold px-2 py-0.5 -mx-2 rounded bg-emerald-50/60">
+                          <span className="text-xs">Total Advanced Amount</span>
+                          <span className="font-tabular font-black text-sm text-[#57B71B]">
+                            {formatCurrency(totalAdvance, meta.currency)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
 
-                  {totalAdvance === 0 && (meta.status === 'PARTIALLY_PAID' || (meta.amountPaid || 0) > 0) && (
-                    <>
-                      <div className="flex justify-between text-emerald-600 font-bold pt-1">
-                        <span>Amount Paid</span>
-                        <span className="font-tabular">-{formatCurrency(meta.amountPaid || 0, meta.currency)}</span>
-                      </div>
-                      <div className="flex justify-between pt-1 border-t-2 border-dashed border-slate-300 text-sm font-black text-rose-600">
-                        <span>Balance Due</span>
-                        <span className="font-tabular">{formatCurrency(balanceDue, meta.currency)}</span>
-                      </div>
-                    </>
-                  )}
+                  <div className="mt-3 pt-2 -mx-4.5 -mb-4.5 px-4.5 py-3 bg-rose-50/80 border-t border-rose-100 rounded-b-xl flex items-center justify-between font-black text-rose-600 text-xs">
+                    <span className="uppercase tracking-wider">BALANCE DUE</span>
+                    <span className="font-tabular text-sm font-black">{formatCurrency(balanceDue, meta.currency)}</span>
+                  </div>
                 </div>
               </div>
 
-              {/* 5. Notes & Authorized Signature Block */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-6 mt-6 border-t border-slate-100 items-start">
-                <div className="md:col-span-7 bg-slate-50/80 rounded-xl p-4 border border-slate-200/80 space-y-2">
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-200/60 pb-1.5">
-                    <input
-                      type="text"
-                      value={notesHeading}
-                      onChange={(e) => setNotesHeading(e.target.value)}
-                      placeholder="TERMS & INSTRUCTIONS:"
-                      className="text-[10px] font-black text-slate-700 uppercase tracking-widest bg-transparent border-b border-transparent hover:border-slate-300 focus:border-[#57B71B] focus:bg-white outline-none transition-colors w-full cursor-text"
-                      title="Click to edit Terms Heading"
-                    />
-                    <span className="text-[9px] text-slate-400 font-medium whitespace-nowrap bg-white px-1.5 py-0.5 rounded border border-slate-200">
-                      ✎ Editable
+              {/* 5. Terms & Instructions (Left) & Digital Authorization (Right) - SIDE BY SIDE */}
+              <div className="invoice-terms-grid grid grid-cols-12 gap-4 py-2 border-t border-slate-100 items-stretch">
+                {/* Left: Terms & Instructions */}
+                <div
+                  className={`${
+                    showSignatureBlock ? 'col-span-7 invoice-terms-left' : 'col-span-12 invoice-terms-full'
+                  } invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full`}
+                >
+                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      {notesHeading || 'TERMS & INSTRUCTIONS:'}
                     </span>
+                    <div className="no-print flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = prompt('Edit Terms Heading:', notesHeading);
+                          if (next !== null) setNotesHeading(next);
+                        }}
+                        className="text-[9px] text-slate-400 hover:text-slate-600 font-medium whitespace-nowrap bg-slate-50 hover:bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 cursor-pointer"
+                        title="Edit Heading"
+                      >
+                        ✎ Editable
+                      </button>
+                      {!showSignatureBlock && (
+                        <button
+                          type="button"
+                          onClick={() => setShowSignatureBlock(true)}
+                          className="text-[9px] text-emerald-600 hover:text-emerald-700 font-bold whitespace-nowrap bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
+                        >
+                          + Add Authorization Section
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <textarea
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Enter invoice terms, notes, and instructions..."
-                    className="w-full text-xs text-slate-600 leading-relaxed whitespace-pre-line bg-transparent border border-transparent hover:border-slate-200 focus:border-[#57B71B] focus:bg-white rounded p-1 outline-none transition-colors resize-y cursor-text"
-                    title="Click to edit Terms & Instructions text directly"
-                  />
+                  <div className="pt-2.5 flex-1 flex flex-col justify-between">
+                    <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line font-medium">
+                      {notes}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="md:col-span-5 bg-gradient-to-br from-white to-slate-50 rounded-xl p-4 border border-slate-200/80 flex flex-col items-center sm:items-end justify-between text-right space-y-3">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                    Authorization & Approval
-                  </span>
-                  <div className="w-44 border-b-2 border-dashed border-slate-300 pb-1 text-center sm:text-right">
-                    <span className="text-xs font-serif italic text-slate-600">Digital Authorized Signatory</span>
+                {/* Right: Digital Authorization Card (when enabled) */}
+                {showSignatureBlock && (
+                  <div className="col-span-5 invoice-terms-right invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full text-right relative">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                      <div className="no-print">
+                        <button
+                          type="button"
+                          onClick={() => setShowSignatureBlock(false)}
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-500 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+                          title="Remove Digital Authorization Section"
+                        >
+                          <Trash2 className="h-3 w-3" /> Remove
+                        </button>
+                      </div>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-auto">
+                        DIGITAL AUTHORIZATION
+                      </span>
+                    </div>
+
+                    <div className="my-auto py-2 flex flex-col items-end">
+                      {signature.signatureImage ? (
+                        <div className="relative group mb-1">
+                          <img
+                            src={signature.signatureImage}
+                            alt="Signature"
+                            className="h-10 max-w-[140px] object-contain"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setSignature({ ...signature, signatureImage: '' })}
+                            className="no-print absolute -top-1 -right-1 h-4 w-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[9px] shadow cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+                            title="Remove Signature Image"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-end">
+                          <span className="text-xs font-serif italic text-slate-500 block mb-1">
+                            Authorized Signatory
+                          </span>
+                          <div className="no-print mb-1">
+                            <label className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors">
+                              <Upload className="h-2.5 w-2.5" /> + Add Signature
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    const reader = new FileReader();
+                                    reader.onload = () => {
+                                      setSignature((s) => ({ ...s, signatureImage: reader.result as string }));
+                                    };
+                                    reader.readAsDataURL(file);
+                                  }
+                                }}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Neutral dashed line (no color!) */}
+                      <div className="w-36 border-b border-dashed border-slate-300 mt-1 mb-1.5" />
+
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 tracking-tight leading-tight">
+                          {signature.name || 'Alexander Vance'}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 font-medium leading-tight">
+                          {signature.role || 'Managing Director'}
+                        </p>
+                        <span className="inline-block text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 mt-1">
+                          ✓ Verified Signatory
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="text-xs font-black text-slate-900 tracking-tight">{signature.name}</h4>
-                    <p className="text-[11px] text-slate-500 font-medium">{signature.role}</p>
-                    <span className="inline-block text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 mt-1">
-                      Verified Signatory
-                    </span>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* 6. Footer Text */}
               {footerText && (
-                <div className="text-center pt-6 mt-6 border-t border-slate-100 text-[10px] text-slate-400 font-medium">
+                <div className="invoice-footer text-center pt-3.5 border-t border-slate-100 text-[10.5px] text-slate-400 font-medium tracking-wide">
                   {footerText}
                 </div>
               )}

@@ -211,30 +211,16 @@ export const authApi = {
     };
   },
 
-  async sendPasswordResetCode(email: string): Promise<{ success: boolean; code: string; message: string }> {
+  async sendPasswordResetCode(email: string): Promise<{ success: boolean; message: string }> {
     const cleanEmail = email.trim().toLowerCase();
-    const generatedCode = String(Math.floor(100000 + Math.random() * 900000));
-    try {
-      const res = await apiFetch<any>('/auth/forgot-password', {
-        method: 'POST',
-        body: JSON.stringify({ email: cleanEmail }),
-      });
-      const code = res?.code || generatedCode;
-      sessionStorage.setItem(`digitechzo_reset_code_${cleanEmail}`, code);
-      return {
-        success: true,
-        code,
-        message: res?.message || `Verification code sent to ${cleanEmail}`,
-      };
-    } catch {
-      // Standalone / offline simulation fallback
-      sessionStorage.setItem(`digitechzo_reset_code_${cleanEmail}`, generatedCode);
-      return {
-        success: true,
-        code: generatedCode,
-        message: `Verification code sent to ${cleanEmail}`,
-      };
-    }
+    const res = await apiFetch<any>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email: cleanEmail }),
+    });
+    return {
+      success: true,
+      message: res?.message || `A verification code has been sent to ${cleanEmail}. Please check your email inbox.`,
+    };
   },
 
   async resetPasswordWithCode(
@@ -244,30 +230,14 @@ export const authApi = {
   ): Promise<{ success: boolean; message: string }> {
     const cleanEmail = email.trim().toLowerCase();
     const cleanCode = code.trim();
-    try {
-      const res = await apiFetch<any>('/auth/reset-password', {
-        method: 'POST',
-        body: JSON.stringify({ email: cleanEmail, code: cleanCode, newPassword }),
-      });
-      sessionStorage.removeItem(`digitechzo_reset_code_${cleanEmail}`);
-      return {
-        success: true,
-        message: res?.message || 'Password reset successfully.',
-      };
-    } catch {
-      // Check stored code in offline / simulation mode
-      const savedCode = sessionStorage.getItem(`digitechzo_reset_code_${cleanEmail}`);
-      if (savedCode && savedCode !== cleanCode) {
-        throw new Error('Invalid verification code. Please check the 6-digit code sent to your email.');
-      }
-      sessionStorage.removeItem(`digitechzo_reset_code_${cleanEmail}`);
-      // Store updated mock credential so login works with new password if tested locally
-      localStorage.setItem(`digitechzo_custom_pwd_${cleanEmail}`, newPassword);
-      return {
-        success: true,
-        message: 'Password reset successfully. You can now log in with your new password.',
-      };
-    }
+    const res = await apiFetch<any>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ email: cleanEmail, code: cleanCode, newPassword }),
+    });
+    return {
+      success: true,
+      message: res?.message || 'Password reset successfully. You can now log in with your new password.',
+    };
   },
 };
 
@@ -293,6 +263,13 @@ export const crmApi = {
     return apiFetch<any>(`/leads/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
+    });
+  },
+
+  assignLead(id: string, ownerId: string) {
+    return apiFetch<any>(`/leads/${id}/assign`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ownerId }),
     });
   },
 
