@@ -41,7 +41,6 @@ import {
   MessageSquare,
   Users,
   Download,
-  FileDown,
   Loader2,
 } from 'lucide-react';
 
@@ -1516,6 +1515,20 @@ export const InvoicesPage: React.FC = () => {
             clonedEl.style.boxShadow = 'none';
             clonedEl.style.borderRadius = '0';
             clonedEl.style.border = 'none';
+
+            // Hide screen-only controls and buttons in the exported PDF
+            clonedEl.querySelectorAll('.no-print').forEach((el) => {
+              (el as HTMLElement).style.display = 'none';
+            });
+            clonedEl.querySelectorAll('button').forEach((btn) => {
+              btn.style.display = 'none';
+            });
+
+            // Prevent text cutoff and clipped font descenders
+            clonedEl.querySelectorAll('h1, h2, h3, h4, p, span, strong, td, th').forEach((el) => {
+              const htmlEl = el as HTMLElement;
+              htmlEl.style.overflow = 'visible';
+            });
           }
         },
       });
@@ -1590,6 +1603,20 @@ export const InvoicesPage: React.FC = () => {
             clonedEl.style.boxShadow = 'none';
             clonedEl.style.borderRadius = '0';
             clonedEl.style.border = 'none';
+
+            // Hide screen-only controls and buttons in the exported image
+            clonedEl.querySelectorAll('.no-print').forEach((el) => {
+              (el as HTMLElement).style.display = 'none';
+            });
+            clonedEl.querySelectorAll('button').forEach((btn) => {
+              btn.style.display = 'none';
+            });
+
+            // Prevent text cutoff and clipped font descenders
+            clonedEl.querySelectorAll('h1, h2, h3, h4, p, span, strong, td, th').forEach((el) => {
+              const htmlEl = el as HTMLElement;
+              htmlEl.style.overflow = 'visible';
+            });
           }
         },
       });
@@ -1860,6 +1887,22 @@ export const InvoicesPage: React.FC = () => {
                 <Download className="h-3.5 w-3.5" />
               )}
               <span>{isExportingPdf ? 'Exporting...' : 'Download PDF'}</span>
+            </button>
+
+            {/* Download PNG Button */}
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              disabled={isExportingImage}
+              className="flex-initial flex items-center justify-center gap-1.5 h-8.5 px-3 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50 shrink-0"
+              title="Download invoice as PNG image"
+            >
+              {isExportingImage ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              <span>{isExportingImage ? 'Exporting...' : 'PNG'}</span>
             </button>
 
             {/* Save Invoice */}
@@ -4730,58 +4773,16 @@ export const InvoicesPage: React.FC = () => {
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={handleDownloadPdf}
-                disabled={isExportingPdf}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#57B71B] hover:bg-[#49a016] text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                title="Download direct PDF file"
-              >
-                {isExportingPdf ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Download className="h-3.5 w-3.5" />
-                )}
-                <span>{isExportingPdf ? 'Exporting PDF...' : 'Download PDF'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleDownloadImage}
-                disabled={isExportingImage}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                title="Download high-resolution PNG image"
-              >
-                {isExportingImage ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <FileDown className="h-3.5 w-3.5 text-slate-600" />
-                )}
-                <span>Image</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={handlePrint}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer"
-                title="Print Invoice"
-              >
-                <Printer className="h-3.5 w-3.5 text-slate-600" />
-                <span>Print</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setStudioViewMode('editor');
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="lg:hidden inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all cursor-pointer"
-              >
-                ← Editor
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setStudioViewMode('editor');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="lg:hidden inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all cursor-pointer"
+            >
+              ← Editor
+            </button>
           </div>
 
           {/* THE REAL INVOICE PAPER (Target for Print & PDF) */}
@@ -4808,32 +4809,32 @@ export const InvoicesPage: React.FC = () => {
                       src={sender.logo}
                       alt={sender.name}
                       style={{ height: `${sender.logoHeight || 48}px` }}
-                      className="max-w-[130px] object-contain transition-all rounded-md shrink-0"
+                      className="max-w-[130px] object-contain transition-all rounded-md shrink-0 mt-1.5"
                     />
                   ) : (
                     <img
                       src="/assets/images/logo.png"
                       alt={sender.name || 'Digitechzo'}
                       style={{ height: `${sender.logoHeight || 48}px` }}
-                      className="max-w-[130px] object-contain transition-all rounded-md shrink-0"
+                      className="max-w-[130px] object-contain transition-all rounded-md shrink-0 mt-1.5"
                       onError={(e) => {
                         (e.currentTarget as HTMLElement).style.display = 'none';
                       }}
                     />
                   )}
                   <div className="min-w-0 flex-1">
-                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight truncate">
+                    <h2 className="text-xl sm:text-2xl font-bold text-slate-900 leading-snug tracking-tight">
                       {sender.name || 'Digitechzo'}
                     </h2>
                     <p className="text-xs text-slate-500 mt-1 leading-relaxed font-normal break-words">
                       {sender.address || 'Digitechzo Tech Solutions, Suite 200, IT Park, Chennai, TN 600001'}
                     </p>
-                    <p className="text-xs text-slate-500 mt-0.5 font-normal break-words">
+                    <p className="text-xs text-slate-500 mt-0.5 font-normal break-words leading-normal">
                       {sender.email || 'billing@digitechzo.com'} <span className="text-slate-400 select-none">•</span> {sender.phone || '+91 98765 43210'}
                     </p>
-                    {sender.taxId && (
-                      <div className="mt-1">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/80">
+                    {Boolean(sender.taxId && sender.taxId.trim()) && (
+                      <div className="mt-1.5">
+                        <span className="inline-block px-2.5 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/80 leading-normal">
                           GST/Tax ID: <strong className="ml-1 text-slate-900">{sender.taxId}</strong>
                         </span>
                       </div>
@@ -4843,7 +4844,7 @@ export const InvoicesPage: React.FC = () => {
 
                 {/* Right (5 Cols): Tax Invoice Heading & UNPAID Badge */}
                 <div className="col-span-12 sm:col-span-5 invoice-header-right flex flex-col items-start sm:items-end justify-start min-w-0 text-left sm:text-right">
-                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-indigo-600 uppercase">
+                  <h1 className="text-2xl sm:text-3xl font-extrabold text-indigo-600 uppercase leading-normal pb-0.5">
                     TAX INVOICE
                   </h1>
                   <div className="mt-2 flex items-center sm:justify-end">
@@ -4883,26 +4884,26 @@ export const InvoicesPage: React.FC = () => {
               <div className="h-[2.5px] bg-gradient-to-r from-[#57B71B] via-emerald-400 to-indigo-600 rounded-full my-3.5" />
 
               {/* 2. Metadata Grid: Billed To (Left 7 Cols) & Invoice Details Box (Right 5 Cols) */}
-              <div className="invoice-meta-grid grid grid-cols-12 gap-5 py-2 items-start">
+              <div className="invoice-meta-grid grid grid-cols-12 gap-5 py-3 items-start">
                 {/* Left: Client Profile */}
                 <div className="col-span-12 sm:col-span-7 invoice-meta-left flex flex-col justify-between py-1">
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
                       BILLED TO (CLIENT)
                     </span>
-                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight leading-normal pb-0.5">
                       {client.name || 'Vortex Global Tech Solutions'}
                     </h3>
                     {client.contact && (
-                      <p className="text-xs text-slate-600 mt-1 font-medium">
+                      <p className="text-xs text-slate-600 mt-1 font-medium leading-normal">
                         Attn: {client.contact}
                       </p>
                     )}
                     {client.address && (
-                      <p className="text-xs text-slate-500 mt-0.5 leading-relaxed font-normal">{client.address}</p>
+                      <p className="text-xs text-slate-500 mt-1 leading-relaxed font-normal">{client.address}</p>
                     )}
                     {(client.email || client.phone) && (
-                      <p className="text-xs text-slate-500 mt-1 font-normal">
+                      <p className="text-xs text-slate-500 mt-1.5 font-normal leading-normal">
                         {client.email} {client.email && client.phone && <span className="text-slate-400 select-none">•</span>} {client.phone}
                       </p>
                     )}
@@ -4910,26 +4911,26 @@ export const InvoicesPage: React.FC = () => {
                 </div>
 
                 {/* Right: Invoice Details Box */}
-                <div className="col-span-12 sm:col-span-5 invoice-meta-right border border-slate-200/90 rounded-xl p-3.5 bg-white text-xs shadow-2xs space-y-1.5">
-                  <div className="flex items-center justify-between">
+                <div className="col-span-12 sm:col-span-5 invoice-meta-right border border-slate-200/90 rounded-xl p-4 bg-white text-xs shadow-2xs space-y-2">
+                  <div className="flex items-center justify-between py-0.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">INVOICE #</span>
                     <span className="font-extrabold text-indigo-600 text-xs tracking-tight">{meta.number || 'DIGI-2026-001'}</span>
                   </div>
                   {meta.poNumber && (
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between py-0.5">
                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">P.O. / REF #:</span>
                       <span className="font-bold text-slate-800 text-xs">{meta.poNumber}</span>
                     </div>
                   )}
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between py-0.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">INVOICE DATE:</span>
                     <span className="font-bold text-slate-800 text-xs font-tabular">{formatDate(meta.date)}</span>
                   </div>
-                  <div className="flex items-center justify-between bg-rose-50 border-l-2 border-rose-500 px-2 py-1 rounded">
+                  <div className="flex items-center justify-between bg-rose-50 border-l-2 border-rose-500 px-2.5 py-1.5 rounded">
                     <span className="text-[10px] font-extrabold text-rose-700 uppercase tracking-wider">PAYMENT DUE:</span>
                     <span className="font-extrabold text-rose-600 text-xs font-tabular">{formatDate(meta.dueDate)}</span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between py-0.5">
                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">TERMS:</span>
                     <span className="text-xs text-slate-600 font-medium">
                       {meta.paymentTermsDays === '0'
@@ -5072,17 +5073,17 @@ export const InvoicesPage: React.FC = () => {
                     activePaymentMethod === 'bank' && payment.showBankQr !== false ? 'sm:col-span-5' : 'md:col-span-7'
                   } invoice-payment-left bg-[#F8FAFC] border border-indigo-100/90 rounded-xl p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between`}
                 >
-                  {/* Header & The 3 Interactive Clickable Tabs */}
+                  {/* Header: Payment Details & Active Method Badge */}
                   <div>
-                    <div className="flex items-center justify-between gap-1.5 mb-2">
+                    <div className="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-200/70">
                       <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5">
                         <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
                         <span>PAYMENT DETAILS</span>
                       </div>
-                      <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200/90 px-2 py-0.5 rounded-md flex items-center gap-1">
-                        {activePaymentMethod === 'bank' && <Building2 className="h-3 w-3" />}
-                        {activePaymentMethod === 'upi' && <QrCode className="h-3 w-3" />}
-                        {activePaymentMethod === 'crypto' && <Wallet className="h-3 w-3" />}
+                      <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/90 px-3 py-1.5 rounded-md inline-flex items-center gap-1.5 leading-normal shadow-2xs">
+                        {activePaymentMethod === 'bank' && <Building2 className="h-3.5 w-3.5 shrink-0" />}
+                        {activePaymentMethod === 'upi' && <QrCode className="h-3.5 w-3.5 shrink-0" />}
+                        {activePaymentMethod === 'crypto' && <Wallet className="h-3.5 w-3.5 shrink-0" />}
                         <span>
                           {activePaymentMethod === 'bank'
                             ? 'Bank Transfer'
@@ -5092,67 +5093,22 @@ export const InvoicesPage: React.FC = () => {
                         </span>
                       </span>
                     </div>
-
-                    {/* The 3 Interactive Clickable Tabs to easily switch payment method */}
-                    <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-0.5 no-print">
-                      <button
-                        type="button"
-                        onClick={() => handlePaymentTabChange('bank')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                          activePaymentMethod === 'bank'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <Building2 className="h-3 w-3" />
-                        <span>Bank Transfer</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePaymentTabChange('upi')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                          activePaymentMethod === 'upi'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <QrCode className="h-3 w-3" />
-                        <span>UPI Pay / QR</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handlePaymentTabChange('crypto')}
-                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                          activePaymentMethod === 'crypto'
-                            ? 'bg-indigo-600 text-white shadow-xs'
-                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                      >
-                        <Wallet className="h-3 w-3" />
-                        <span>Crypto Wallet</span>
-                      </button>
-                    </div>
                   </div>
-
-                  {/* Horizontal Divider below tabs */}
-                  <div className="border-b border-slate-200/70 my-3" />
 
                   {/* Selected Method Details */}
                   {activePaymentMethod === 'bank' && (
-                    <div className="space-y-1.5 py-0.5 text-xs">
-                      <div>
+                    <div className="space-y-2.5 py-1 text-xs">
+                      <div className="leading-normal">
                         <span className="text-[11px] text-slate-500 font-medium">Bank Name: </span>
                         <strong className="text-slate-900 font-extrabold">{payment.bank.bankName || 'HDFC Bank Ltd'}</strong>
                       </div>
 
-                      <div>
+                      <div className="leading-normal">
                         <span className="text-[11px] text-slate-500 font-medium">Account Name: </span>
                         <strong className="text-slate-900 font-extrabold">{payment.bank.accountName || sender.name || 'Digitechzo'}</strong>
                       </div>
 
-                      <div>
+                      <div className="leading-normal">
                         <span className="text-[11px] text-slate-500 font-medium">Account #: </span>
                         <div className="inline-flex items-center gap-1.5 mt-0.5">
                           <strong className="text-slate-950 font-black font-mono tracking-tight text-xs sm:text-sm">
@@ -5173,7 +5129,7 @@ export const InvoicesPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div>
+                      <div className="leading-normal">
                         <span className="text-[11px] text-slate-500 font-medium">IFSC / SWIFT: </span>
                         <div className="inline-flex items-center gap-1.5 mt-0.5">
                           <strong className="text-slate-950 font-black font-mono tracking-tight text-xs sm:text-sm">
@@ -5194,7 +5150,7 @@ export const InvoicesPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div>
+                      <div className="leading-normal">
                         <span className="text-[11px] text-slate-500 font-medium">Branch: </span>
                         <span className="text-slate-800 font-medium">
                           {payment.bank.branch || 'Anna Salai Branch, Chennai'}
@@ -5205,7 +5161,7 @@ export const InvoicesPage: React.FC = () => {
 
                   {activePaymentMethod === 'upi' && (
                     <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-xs">
-                      {/* Left: White Card with QR Code and Subtitle */}
+                      {/* Left: White Card with QR Code */}
                       <div className="bg-white border border-slate-200/90 rounded-xl p-2.5 shadow-2xs flex flex-col items-center justify-center shrink-0 w-32 sm:w-36">
                         {activePaymentQrUrl ? (
                           <img
@@ -5218,9 +5174,6 @@ export const InvoicesPage: React.FC = () => {
                             <QrCode className="h-8 w-8 text-slate-300" />
                           </div>
                         )}
-                        <span className="text-[10px] text-slate-500 font-medium mt-1.5 flex items-center gap-1 text-center whitespace-nowrap">
-                          <span>📷</span> Scan with GPay / PhonePe / Paytm
-                        </span>
                       </div>
 
                       {/* Right: UPI Key Details matching screenshot */}
@@ -5371,11 +5324,11 @@ export const InvoicesPage: React.FC = () => {
               {/* 5. Notes & Terms (Left 7 Cols) & Authorized Signatory (Right 5 Cols) */}
               <div className="invoice-terms-grid grid grid-cols-12 gap-5 py-3.5 border-t border-slate-100 items-start">
                 {/* Left: Separated Note & Terms */}
-                <div className="col-span-12 sm:col-span-7 invoice-terms-left space-y-2.5">
+                <div className="col-span-12 sm:col-span-7 invoice-terms-left space-y-4">
                   {/* Note Block */}
                   {showNotesBlock && notes && (
-                    <div className="space-y-0.5">
-                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5">
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5 pb-0.5">
                         <MessageSquare className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
                         <span>{notesHeading || 'NOTE:'}</span>
                       </div>
@@ -5387,8 +5340,8 @@ export const InvoicesPage: React.FC = () => {
 
                   {/* Terms Block */}
                   {showTermsBlock && terms && (
-                    <div className="space-y-0.5">
-                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5">
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5 pb-0.5">
                         <FileText className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
                         <span>{termsHeading || 'TERMS:'}</span>
                       </div>
@@ -5406,19 +5359,19 @@ export const InvoicesPage: React.FC = () => {
                       <img
                         src={signature.signatureImage}
                         alt="Signature"
-                        className="h-10 max-w-[140px] object-contain mb-1"
+                        className="h-10 max-w-[140px] object-contain mb-2"
                       />
                     ) : (
-                      <div className="w-44 sm:w-52 border-t-2 border-slate-800 mb-1.5" />
+                      <div className="w-44 sm:w-52 border-t-2 border-slate-800 mb-2.5" />
                     )}
-                    <h4 className="text-xs font-bold text-slate-900 tracking-tight leading-tight">
+                    <h4 className="text-xs font-bold text-slate-900 tracking-tight leading-normal">
                       {signature.name || 'Digitechzo Director'}
                     </h4>
-                    <p className="text-[11px] text-slate-500 font-medium leading-tight">
+                    <p className="text-[11px] text-slate-500 font-medium leading-normal mt-0.5">
                       {signature.role || 'Managing Director'}
                     </p>
-                    <div className="mt-1 flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold text-[#57B71B] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/80">
-                      <span>✓</span>
+                    <div className="mt-3 inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-bold text-[#57B71B] bg-emerald-50 px-3 py-1 rounded-md border border-emerald-200/90 leading-normal shadow-2xs">
+                      <span className="font-bold">✓</span>
                       <span>AUTHORIZED SIGNATURE</span>
                     </div>
                   </div>

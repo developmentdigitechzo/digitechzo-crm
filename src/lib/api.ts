@@ -1,7 +1,9 @@
 import { AuthSession, User } from '@/types/auth';
 
 const STORAGE_KEY = 'digitechzo_auth_session';
-const API_BASE_URL = '/api/v1';
+const rawEnvUrl = (import.meta as any)?.env?.VITE_API_URL || '';
+const RAW_API_URL = rawEnvUrl ? String(rawEnvUrl).replace(/\/+$/, '') : '';
+const API_BASE_URL = RAW_API_URL ? `${RAW_API_URL}/api/v1` : '/api/v1';
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public data?: any) {
