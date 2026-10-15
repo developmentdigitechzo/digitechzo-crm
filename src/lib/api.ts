@@ -1,7 +1,9 @@
 import { AuthSession, User } from '@/types/auth';
 
 const STORAGE_KEY = 'digitechzo_auth_session';
-const rawEnvUrl = (import.meta as any)?.env?.VITE_API_URL || '';
+const isDev = Boolean((import.meta as any)?.env?.DEV);
+const defaultUrl = isDev ? '' : 'https://digitechzo-crm-api.onrender.com';
+const rawEnvUrl = (import.meta as any)?.env?.VITE_API_URL || defaultUrl;
 const RAW_API_URL = rawEnvUrl ? String(rawEnvUrl).replace(/\/+$/, '') : '';
 const API_BASE_URL = RAW_API_URL ? `${RAW_API_URL}/api/v1` : '/api/v1';
 
