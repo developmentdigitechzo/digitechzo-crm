@@ -41,6 +41,8 @@ import {
   Flame,
   SunMedium,
   Trophy,
+  Phone,
+  Mail,
 } from 'lucide-react';
 
 export const LeadsPage: React.FC = () => {
@@ -917,12 +919,12 @@ export const LeadsPage: React.FC = () => {
           className="w-full sm:w-80"
         />
 
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end">
+        <div className="grid grid-cols-1 xs:grid-cols-3 sm:flex items-center gap-2 w-full sm:w-auto">
           {/* Category Dropdown */}
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer max-w-[160px] truncate"
+            className="w-full sm:w-auto h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
             aria-label="Filter by category"
           >
             <option value="ALL">All Categories</option>
@@ -937,7 +939,7 @@ export const LeadsPage: React.FC = () => {
           <select
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value)}
-            className="h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+            className="w-full sm:w-auto h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
             aria-label="Filter by source"
           >
             <option value="ALL">All Sources</option>
@@ -952,7 +954,7 @@ export const LeadsPage: React.FC = () => {
           <select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
-            className="h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+            className="w-full sm:w-auto h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
             aria-label="Filter by owner"
           >
             <option value="ALL">All Owners</option>
@@ -968,7 +970,7 @@ export const LeadsPage: React.FC = () => {
               variant="ghost"
               size="sm"
               onClick={handleResetFilters}
-              className="h-8 px-2 text-xs text-txt-muted hover:text-txt-primary cursor-pointer"
+              className="col-span-full sm:col-auto h-8 px-2 text-xs text-txt-muted hover:text-txt-primary cursor-pointer justify-center"
             >
               <X className="mr-1 h-3 w-3" /> Reset
             </Button>
@@ -976,7 +978,7 @@ export const LeadsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4. Leads Content: High-Density Table */}
+      {/* 4. Leads Content: Desktop Table & Mobile Card Views */}
       {isLoading ? (
         <div className="p-12 text-center flex flex-col items-center justify-center bg-white rounded-card border border-border shadow-card">
           <Loader2 className="h-6 w-6 animate-spin text-[#57B71B] mb-2" />
@@ -996,7 +998,128 @@ export const LeadsPage: React.FC = () => {
         />
       ) : (
         <div className="rounded-card border border-border bg-white shadow-card overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile Card List (< md) */}
+          <div className="md:hidden divide-y divide-border">
+            {filteredLeads.map((lead) => {
+              const isRecentlyCreated = recentlyCreatedLeadId === lead.id;
+              return (
+                <div
+                  key={lead.id}
+                  className={cn(
+                    "p-3.5 space-y-2.5 bg-white transition-all cursor-pointer hover:bg-slate-50/80 active:bg-slate-100",
+                    isRecentlyCreated && "bg-emerald-50/80 ring-1 ring-[#57B71B]/30"
+                  )}
+                  onClick={() => navigate(`/leads/${lead.id}`)}
+                >
+                  {/* Row 1: Name + Status + Score + Actions */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold text-xs text-txt-primary leading-tight">
+                          {lead.fullName}
+                        </span>
+                        {isRecentlyCreated && (
+                          <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#57B71B] text-white">
+                            NEW
+                          </span>
+                        )}
+                        <StatusBadge status={lead.status} type="lead" />
+                      </div>
+                      <div className="text-[11px] text-txt-muted flex items-center gap-1">
+                        <Building className="h-3 w-3 text-txt-muted shrink-0" />
+                        <span className="truncate">{lead.companyName || 'Individual'}</span>
+                        {lead.title && <span>&bull; {lead.title}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-txt-secondary tabular-nums bg-slate-100 px-1.5 py-0.5 rounded">
+                        <Sparkles className="h-3 w-3 text-amber-500" />
+                        {lead.leadScore}
+                      </span>
+                      <ActionMenu
+                        items={[
+                          {
+                            label: 'Open Details Page',
+                            icon: ExternalLink,
+                            onClick: () => navigate(`/leads/${lead.id}`),
+                          },
+                          {
+                            label: 'Edit Lead',
+                            icon: Edit,
+                            onClick: () => handleOpenEdit(lead),
+                          },
+                          {
+                            label: 'Delete Lead',
+                            icon: Trash2,
+                            onClick: () => {
+                              setDeleteError(null);
+                              setDeletingLead(lead);
+                            },
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 2: Contact Phone & Email */}
+                  <div className="flex items-center gap-3 text-xs flex-wrap" onClick={(e) => e.stopPropagation()}>
+                    {lead.phone && (
+                      <a
+                        href={`tel:${lead.phone.replace(/[^0-9+]/g, '')}`}
+                        className="inline-flex items-center gap-1 font-semibold text-slate-800 hover:text-[#57B71B] transition-colors"
+                      >
+                        <Phone className="h-3 w-3 text-slate-400 shrink-0" />
+                        <span className="tabular-nums">{lead.phone}</span>
+                      </a>
+                    )}
+                    {lead.email && (
+                      <a
+                        href={`mailto:${lead.email}`}
+                        className="inline-flex items-center gap-1 text-[11px] text-txt-muted hover:text-[#57B71B] truncate max-w-[180px]"
+                      >
+                        <Mail className="h-2.5 w-2.5 text-slate-400 shrink-0" />
+                        <span className="truncate">{lead.email}</span>
+                      </a>
+                    )}
+                  </div>
+
+                  {/* Row 3: Category & Source */}
+                  <div className="flex items-center justify-between text-xs gap-2 pt-1 border-t border-slate-100">
+                    <span className="text-[11px] text-txt-secondary truncate" title={lead.serviceInterest}>
+                      {lead.serviceInterest}
+                    </span>
+                    <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-slate-100 text-txt-secondary border border-border shrink-0">
+                      {lead.source}
+                    </span>
+                  </div>
+
+                  {/* Row 4: Owner & Next Action */}
+                  <div className="flex items-center justify-between text-[11px] gap-2 pt-0.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Avatar className="h-4.5 w-4.5 shrink-0">
+                        <AvatarFallback className="bg-primary-soft text-primary text-[8px] font-bold">
+                          {lead.ownerName.split(' ').map((n: string) => n[0]).join('')}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-txt-muted truncate">{lead.ownerName}</span>
+                    </div>
+
+                    {lead.nextAction ? (
+                      <div className="text-right text-[10px] text-[#57B71B] font-semibold truncate shrink-0">
+                        Next: {lead.nextAction.actionType} ({lead.nextAction.time || formatDate(lead.nextAction.date)})
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-txt-muted">No action scheduled</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Desktop Table View (>= md) */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1045,14 +1168,34 @@ export const LeadsPage: React.FC = () => {
                       </TableCell>
 
                     {/* 2. Contact */}
-                    <TableCell>
-                      <div className="space-y-0.5 text-xs">
-                        <span className="text-txt-primary font-medium block leading-tight tabular-nums">
-                          {lead.phone}
-                        </span>
-                        <span className="text-[11px] text-txt-muted block truncate max-w-[150px]">
-                          {lead.email || '—'}
-                        </span>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <div className="space-y-1 text-xs">
+                        {lead.phone ? (
+                          <a
+                            href={`tel:${lead.phone.replace(/[^0-9+]/g, '')}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1.5 font-semibold text-slate-900 hover:text-[#57B71B] transition-colors group/phone cursor-pointer"
+                            title={`Call ${lead.phone}`}
+                          >
+                            <Phone className="h-3 w-3 text-slate-400 group-hover/phone:text-[#57B71B] transition-colors shrink-0" />
+                            <span className="tabular-nums underline-offset-2 hover:underline leading-tight">{lead.phone}</span>
+                          </a>
+                        ) : (
+                          <span className="text-txt-muted block leading-tight tabular-nums">—</span>
+                        )}
+                        {lead.email ? (
+                          <a
+                            href={`mailto:${lead.email}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1.5 text-[11px] text-txt-muted hover:text-[#57B71B] truncate max-w-[150px] hover:underline transition-colors block group/mail"
+                            title={`Email ${lead.email}`}
+                          >
+                            <Mail className="h-2.5 w-2.5 text-slate-400 group-hover/mail:text-[#57B71B] transition-colors shrink-0" />
+                            <span className="truncate">{lead.email}</span>
+                          </a>
+                        ) : (
+                          <span className="text-[11px] text-txt-muted block">—</span>
+                        )}
                       </div>
                     </TableCell>
 
@@ -1159,13 +1302,13 @@ export const LeadsPage: React.FC = () => {
             </Table>
           </div>
 
-          {/* Table Footer */}
-          <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 border-t border-border text-xs text-txt-muted">
+          {/* Table / Card List Footer */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-1 px-4 py-2.5 bg-slate-50/70 border-t border-border text-xs text-txt-muted text-center sm:text-left">
             <span>
               Showing <strong className="text-txt-primary tabular-nums">{filteredLeads.length}</strong> of{' '}
               <strong className="text-txt-primary tabular-nums">{leads.length}</strong> leads
             </span>
-            <span className="text-[11px]">Click any row to open the complete 360° Lead Details Page</span>
+            <span className="text-[11px]">Click any record to open the complete 360° Lead Details Page</span>
           </div>
         </div>
       )}

@@ -432,11 +432,11 @@ export const PipelinePage: React.FC = () => {
         actions={
           <div className="flex items-center gap-2">
             {/* View Switcher Toggle */}
-            <div className="hidden sm:inline-flex items-center rounded-btn border border-border bg-white p-0.5 shadow-subtle">
+            <div className="inline-flex items-center rounded-btn border border-border bg-white p-0.5 shadow-subtle">
               <button
                 type="button"
                 onClick={() => setViewMode('kanban')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded transition-colors cursor-pointer ${
+                className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded transition-colors cursor-pointer ${
                   viewMode === 'kanban'
                     ? 'bg-[#16181B] text-white shadow-subtle'
                     : 'text-txt-secondary hover:text-txt-primary'
@@ -444,12 +444,12 @@ export const PipelinePage: React.FC = () => {
                 aria-label="Kanban board view"
               >
                 <KanbanSquare className="h-3.5 w-3.5" />
-                <span>Kanban</span>
+                <span className="hidden xs:inline">Kanban</span>
               </button>
               <button
                 type="button"
                 onClick={() => setViewMode('table')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded transition-colors cursor-pointer ${
+                className={`flex items-center gap-1 px-2 sm:px-2.5 py-1 text-xs font-semibold rounded transition-colors cursor-pointer ${
                   viewMode === 'table'
                     ? 'bg-[#16181B] text-white shadow-subtle'
                     : 'text-txt-secondary hover:text-txt-primary'
@@ -457,7 +457,7 @@ export const PipelinePage: React.FC = () => {
                 aria-label="Table list view"
               >
                 <TableIcon className="h-3.5 w-3.5" />
-                <span>Table</span>
+                <span className="hidden xs:inline">Table</span>
               </button>
             </div>
 
@@ -490,7 +490,7 @@ export const PipelinePage: React.FC = () => {
           <select
             value={ownerFilter}
             onChange={(e) => setOwnerFilter(e.target.value)}
-            className="h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+            className="w-full sm:w-auto h-8 rounded-input border border-border bg-white px-2.5 py-1 text-xs text-txt-primary shadow-subtle focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
             aria-label="Filter deals by owner"
           >
             <option value="ALL">All Owners</option>
@@ -553,10 +553,10 @@ export const PipelinePage: React.FC = () => {
         </div>
       ) : viewMode === 'kanban' ? (
         /* KANBAN BOARD VIEW */
-        <div className="relative w-full overflow-x-auto pb-3 pt-1">
+        <div className="relative w-full overflow-x-auto pb-4 pt-1 snap-x snap-mandatory scroll-smooth -mx-1 px-1">
           <div
             className={`flex gap-3 items-start ${
-              mobileStageFilter !== 'ALL' ? 'w-full flex-col sm:flex-row sm:min-w-[1400px]' : 'min-w-[1400px]'
+              mobileStageFilter !== 'ALL' ? 'w-full flex-col sm:flex-row sm:min-w-[1400px]' : 'w-max sm:min-w-[1400px]'
             }`}
           >
             {(mobileStageFilter !== 'ALL' ? stages.filter((s) => s.id === mobileStageFilter) : stages).map((stage) => {
@@ -567,10 +567,10 @@ export const PipelinePage: React.FC = () => {
               return (
                 <div
                   key={stage.id}
-                  className={`rounded-card border flex flex-col gap-2.5 p-2.5 transition-colors ${
+                  className={`rounded-card border flex flex-col gap-2.5 p-2.5 transition-colors shrink-0 snap-center ${
                     mobileStageFilter !== 'ALL'
                       ? 'w-full sm:flex-1 sm:min-w-[220px] sm:max-w-[280px]'
-                      : 'flex-1 min-w-[220px] max-w-[280px]'
+                      : 'w-[82vw] max-w-[290px] sm:w-auto sm:flex-1 sm:min-w-[220px] sm:max-w-[280px]'
                   } ${
                     isWonStage
                       ? 'bg-emerald-50/40 border-emerald-200'
@@ -724,7 +724,120 @@ export const PipelinePage: React.FC = () => {
       ) : (
         /* TABLE LIST VIEW */
         <div className="rounded-card border border-border bg-white shadow-card overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* Mobile Deal Cards (< md) */}
+          <div className="block md:hidden divide-y divide-border">
+            {filteredDeals.length === 0 ? (
+              <div className="p-8 text-center text-txt-muted text-xs">
+                No deals match the selected criteria
+              </div>
+            ) : (
+              filteredDeals.map((deal) => {
+                const currentStage = stages.find((s) => s.id === deal.stageId);
+                const isWon = deal.status === 'WON' || currentStage?.stageType === 'WON';
+                const isLost = deal.status === 'LOST' || currentStage?.stageType === 'LOST';
+
+                return (
+                  <div
+                    key={deal.id}
+                    onClick={() => setSelectedDeal(deal)}
+                    className="p-3.5 space-y-2.5 hover:bg-slate-50/80 transition-colors cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h4 className="font-semibold text-xs text-txt-primary truncate">
+                          {deal.title}
+                        </h4>
+                        <div className="flex items-center gap-1.5 text-[11px] text-txt-muted mt-0.5">
+                          <Building className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{deal.companyName || deal.leadName}</span>
+                        </div>
+                      </div>
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <ActionMenu
+                          items={[
+                            {
+                              label: 'View Deal',
+                              icon: ExternalLink,
+                              onClick: () => setSelectedDeal(deal),
+                            },
+                            {
+                              label: 'Advance Stage',
+                              icon: TrendingUp,
+                              onClick: () => handleAdvanceStage(deal),
+                            },
+                            {
+                              label: 'Edit Deal',
+                              icon: Edit,
+                              onClick: () => handleOpenEditModal(deal),
+                            },
+                            {
+                              label: 'Mark Won',
+                              icon: CheckCircle2,
+                              onClick: () => handleMarkWon(deal),
+                            },
+                            {
+                              label: 'Mark Lost',
+                              icon: AlertCircle,
+                              onClick: () => handleOpenLostModal(deal),
+                            },
+                            {
+                              label: 'Delete Deal',
+                              icon: Trash2,
+                              variant: 'danger',
+                              onClick: () => handleDeleteDeal(deal),
+                            },
+                          ]}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-border/60">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-badge text-[10px] font-semibold border ${
+                            isWon
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                              : isLost
+                              ? 'bg-rose-50 text-rose-800 border-rose-200'
+                              : 'bg-slate-100 text-txt-secondary border-border'
+                          }`}
+                        >
+                          {currentStage?.name || 'Open'}
+                        </span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-badge text-[10px] font-semibold bg-slate-100 text-txt-secondary border border-border tabular-nums">
+                          {deal.probability}% win
+                        </span>
+                      </div>
+                      <span className="font-bold text-xs text-txt-primary tabular-nums">
+                        {formatCurrency(deal.amount, deal.currency)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-txt-muted pt-0.5">
+                      <div className="flex items-center gap-1 tabular-nums">
+                        <Calendar className="h-3 w-3 text-txt-muted" />
+                        <span>{deal.expectedCloseDate || '—'}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Avatar className="h-4 w-4">
+                          <AvatarFallback className="bg-primary-soft text-primary text-[8px] font-bold">
+                            {deal.ownerName
+                              .split(' ')
+                              .map((n) => n[0])
+                              .join('')}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="truncate max-w-[100px]">{deal.ownerName}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View (>= md) */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>

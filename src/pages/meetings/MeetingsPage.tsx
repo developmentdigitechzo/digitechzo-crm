@@ -1007,7 +1007,7 @@ export const MeetingsPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3">
               <div className="space-y-1">
                 <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Session Modality</label>
                 <select
@@ -1044,7 +1044,7 @@ export const MeetingsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 items-start">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3 items-start">
               <div className="space-y-1">
                 <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">
                   Date <span className="text-red-500 ml-0.5">*</span>

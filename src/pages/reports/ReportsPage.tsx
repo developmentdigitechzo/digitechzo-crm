@@ -738,106 +738,187 @@ export const ReportsPage: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-slate-50/60 hover:bg-slate-50/60">
-                      <TableHead className="w-[200px] text-[11px] font-bold uppercase text-txt-muted">
-                        Sales Representative
-                      </TableHead>
-                      <TableHead className="text-[11px] font-bold uppercase text-txt-muted">
-                        Assigned Team
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
-                        Assigned Leads
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
-                        Active Deals
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
-                        Managed Pipeline (INR)
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
-                        Active Tasks
-                      </TableHead>
-                      <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
-                        Logged Activities
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody className="divide-y divide-border">
-                    {filteredRepMetrics.map((rep) => (
-                      <TableRow key={rep.id} className="hover:bg-slate-50/80 transition-colors">
-                        <TableCell className="py-3">
-                          <div className="flex items-center gap-2.5">
-                            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#57B71B]/15 text-[#57B71B] font-bold text-xs shrink-0">
-                              {rep.name.charAt(0)}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-bold text-xs text-txt-primary truncate">{rep.name}</p>
-                              <span className="text-[10px] font-semibold text-txt-muted uppercase">
-                                {rep.role}
-                              </span>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="py-3 text-xs text-txt-secondary font-medium">
-                          {rep.teamName}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-semibold font-tabular text-txt-primary">
-                          {rep.assignedLeadsCount}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-semibold font-tabular text-txt-primary">
-                          {rep.activeDealsCount}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {formatCurrency(rep.managedPipelineValue)}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-semibold font-tabular">
-                          <span
-                            className={cn(
-                              rep.overdueTasksCount > 0 ? 'text-[#DC2626] font-bold' : 'text-txt-primary'
-                            )}
-                          >
-                            {rep.activeTasksCount}
-                            {rep.overdueTasksCount > 0 && ` (${rep.overdueTasksCount} overdue)`}
-                          </span>
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-semibold font-tabular text-txt-primary">
-                          {rep.loggedActivitiesCount}
-                        </TableCell>
+              <>
+                {/* Desktop View Table (≥768px) */}
+                <div className="hidden md:block overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-slate-50/60 hover:bg-slate-50/60">
+                        <TableHead className="w-[200px] text-[11px] font-bold uppercase text-txt-muted">
+                          Sales Representative
+                        </TableHead>
+                        <TableHead className="text-[11px] font-bold uppercase text-txt-muted">
+                          Assigned Team
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
+                          Assigned Leads
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
+                          Active Deals
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
+                          Managed Pipeline (INR)
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
+                          Active Tasks
+                        </TableHead>
+                        <TableHead className="text-right text-[11px] font-bold uppercase text-txt-muted">
+                          Logged Activities
+                        </TableHead>
                       </TableRow>
-                    ))}
+                    </TableHeader>
+                    <TableBody className="divide-y divide-border">
+                      {filteredRepMetrics.map((rep) => (
+                        <TableRow key={rep.id} className="hover:bg-slate-50/80 transition-colors">
+                          <TableCell className="py-3">
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#57B71B]/15 text-[#57B71B] font-bold text-xs shrink-0">
+                                {rep.name.charAt(0)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-bold text-xs text-txt-primary truncate">{rep.name}</p>
+                                <span className="text-[10px] font-semibold text-txt-muted uppercase">
+                                  {rep.role}
+                                </span>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="py-3 text-xs text-txt-secondary font-medium">
+                            {rep.teamName}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-semibold font-tabular text-txt-primary">
+                            {rep.assignedLeadsCount}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-semibold font-tabular text-txt-primary">
+                            {rep.activeDealsCount}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
+                            {formatCurrency(rep.managedPipelineValue)}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-semibold font-tabular">
+                            <span
+                              className={cn(
+                                rep.overdueTasksCount > 0 ? 'text-[#DC2626] font-bold' : 'text-txt-primary'
+                              )}
+                            >
+                              {rep.activeTasksCount}
+                              {rep.overdueTasksCount > 0 && ` (${rep.overdueTasksCount} overdue)`}
+                            </span>
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-semibold font-tabular text-txt-primary">
+                            {rep.loggedActivitiesCount}
+                          </TableCell>
+                        </TableRow>
+                      ))}
 
-                    {/* Team Total Row (Only shown when viewing all reps) */}
-                    {repFilter === 'ALL' && (
-                      <TableRow className="bg-slate-50 font-bold border-t-2 border-border hover:bg-slate-50">
-                        <TableCell className="py-3 text-xs text-txt-primary font-bold">
-                          Team Total
-                        </TableCell>
-                        <TableCell className="py-3 text-xs text-txt-muted font-medium">
-                          All Sales Team
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {leads.length}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {activeDeals.length}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-bold font-tabular text-[#57B71B]">
+                      {/* Team Total Row (Only shown when viewing all reps) */}
+                      {repFilter === 'ALL' && (
+                        <TableRow className="bg-slate-50 font-bold border-t-2 border-border hover:bg-slate-50">
+                          <TableCell className="py-3 text-xs text-txt-primary font-bold">
+                            Team Total
+                          </TableCell>
+                          <TableCell className="py-3 text-xs text-txt-muted font-medium">
+                            All Sales Team
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
+                            {leads.length}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
+                            {activeDeals.length}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-bold font-tabular text-[#57B71B]">
+                            {formatCurrency(activePipelineValue)}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
+                            {tasks.length}
+                          </TableCell>
+                          <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
+                            {repMetrics.reduce((s, r) => s + r.loggedActivitiesCount, 0)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Mobile View Cards (<768px) */}
+                <div className="md:hidden divide-y divide-border">
+                  {filteredRepMetrics.map((rep) => (
+                    <div key={rep.id} className="p-3.5 space-y-2.5 bg-white">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#57B71B]/15 text-[#57B71B] font-bold text-xs shrink-0">
+                            {rep.name.charAt(0)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold text-xs text-txt-primary truncate">{rep.name}</p>
+                            <span className="text-[10px] font-semibold text-txt-muted uppercase">
+                              {rep.role} &bull; {rep.teamName}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-xs font-bold text-[#57B71B] font-tabular block">
+                            {formatCurrency(rep.managedPipelineValue)}
+                          </span>
+                          <span className="text-[10px] text-txt-muted">Pipeline</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-4 gap-1.5 pt-1 border-t border-border/50 text-center">
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Leads</span>
+                          <span className="font-bold text-xs text-txt-primary font-tabular">{rep.assignedLeadsCount}</span>
+                        </div>
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Deals</span>
+                          <span className="font-bold text-xs text-txt-primary font-tabular">{rep.activeDealsCount}</span>
+                        </div>
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Tasks</span>
+                          <span className={cn("font-bold text-xs font-tabular", rep.overdueTasksCount > 0 ? "text-[#DC2626]" : "text-txt-primary")}>
+                            {rep.activeTasksCount}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Activities</span>
+                          <span className="font-bold text-xs text-txt-primary font-tabular">{rep.loggedActivitiesCount}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Mobile Team Total Summary Card */}
+                  {repFilter === 'ALL' && (
+                    <div className="p-3.5 bg-slate-50 border-t-2 border-border space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-xs text-txt-primary">Team Total</span>
+                        <span className="font-bold text-xs text-[#57B71B] font-tabular">
                           {formatCurrency(activePipelineValue)}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {tasks.length}
-                        </TableCell>
-                        <TableCell className="py-3 text-right text-xs font-bold font-tabular text-txt-primary">
-                          {repMetrics.reduce((s, r) => s + r.loggedActivitiesCount, 0)}
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5 text-center text-xs">
+                        <div className="bg-white p-1.5 rounded border border-border/60">
+                          <span className="text-[10px] text-txt-muted block">Leads</span>
+                          <span className="font-bold font-tabular text-txt-primary">{leads.length}</span>
+                        </div>
+                        <div className="bg-white p-1.5 rounded border border-border/60">
+                          <span className="text-[10px] text-txt-muted block">Deals</span>
+                          <span className="font-bold font-tabular text-txt-primary">{activeDeals.length}</span>
+                        </div>
+                        <div className="bg-white p-1.5 rounded border border-border/60">
+                          <span className="text-[10px] text-txt-muted block">Tasks</span>
+                          <span className="font-bold font-tabular text-txt-primary">{tasks.length}</span>
+                        </div>
+                        <div className="bg-white p-1.5 rounded border border-border/60">
+                          <span className="text-[10px] text-txt-muted block">Activities</span>
+                          <span className="font-bold font-tabular text-txt-primary">{repMetrics.reduce((s, r) => s + r.loggedActivitiesCount, 0)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

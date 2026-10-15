@@ -908,7 +908,134 @@ export const TasksPage: React.FC = () => {
       ) : (
         /* Alternative Table View */
         <Card className="border-border shadow-none overflow-hidden bg-white">
-          <div className="overflow-x-auto">
+          {/* Mobile Task Cards (< md) */}
+          <div className="block md:hidden divide-y divide-border">
+            {filteredTasks.length === 0 ? (
+              <div className="p-6">
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="No tasks found"
+                  description="Try resetting your active filters."
+                  actionLabel="Reset Filters"
+                  onAction={resetAllFilters}
+                />
+              </div>
+            ) : (
+              filteredTasks.map((task) => {
+                const isOverdue = task.status === 'OVERDUE';
+                const isCompleted = task.status === 'COMPLETED';
+
+                return (
+                  <div
+                    key={task.id}
+                    className={cn(
+                      'p-3.5 space-y-2.5 hover:bg-slate-50/80 transition-colors',
+                      isCompleted ? 'bg-slate-50/40 opacity-75' : ''
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleComplete(task.id)}
+                          className={cn(
+                            'mt-0.5 flex h-5 w-5 items-center justify-center rounded border transition-colors cursor-pointer shrink-0',
+                            isCompleted
+                              ? 'bg-[#16A34A] border-[#16A34A] text-white'
+                              : 'border-slate-300 hover:border-[#57B71B] bg-white'
+                          )}
+                          title={isCompleted ? 'Mark Pending' : 'Mark Completed'}
+                        >
+                          {isCompleted && <Check className="h-3.5 w-3.5" />}
+                        </button>
+
+                        <div className="min-w-0 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTask(task)}
+                            className={cn(
+                              'font-bold text-xs text-txt-primary hover:text-[#57B71B] transition-colors truncate text-left block w-full',
+                              isCompleted ? 'line-through text-txt-muted' : ''
+                            )}
+                          >
+                            {task.title}
+                          </button>
+                          {task.leadName && (
+                            <Link
+                              to={task.leadId ? `/leads/${task.leadId}` : '/leads'}
+                              className="flex items-center gap-1 text-[11px] text-txt-secondary hover:text-[#57B71B] transition-colors mt-0.5 truncate"
+                            >
+                              <Building2 className="h-3 w-3 text-txt-muted shrink-0" />
+                              <span className="truncate">{task.leadName}</span>
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => handleOpenOutcomeModal(task)}
+                          className="h-6 text-[11px] px-2 bg-[#57B71B]/10 hover:bg-[#57B71B]/20 text-[#57B71B] font-semibold cursor-pointer"
+                        >
+                          Log
+                        </Button>
+                        <ActionMenu
+                          items={[
+                            {
+                              label: isCompleted ? 'Mark Pending' : 'Mark Completed',
+                              icon: Check,
+                              onClick: () => handleToggleComplete(task.id),
+                            },
+                            {
+                              label: 'Log Outcome',
+                              icon: ExternalLink,
+                              onClick: () => handleOpenOutcomeModal(task),
+                            },
+                            {
+                              label: 'Reschedule (+1 Day)',
+                              icon: RotateCcw,
+                              onClick: () => handleReschedule(task.id),
+                            },
+                            {
+                              label: 'View Details',
+                              onClick: () => setSelectedTask(task),
+                            },
+                            {
+                              label: 'Delete Task',
+                              icon: Trash2,
+                              variant: 'danger',
+                              onClick: () => handleDeleteTask(task.id),
+                            },
+                          ]}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-border/60">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <StatusBadge status={task.status} type="task" />
+                        <StatusBadge status={task.priority} type="priority" />
+                      </div>
+                      <div
+                        className={cn(
+                          'text-[11px] font-semibold flex items-center gap-1 tabular-nums',
+                          isOverdue ? 'text-[#DC2626]' : isCompleted ? 'text-txt-muted' : 'text-txt-primary'
+                        )}
+                      >
+                        <Calendar className="h-3 w-3 text-txt-muted" />
+                        <span>{task.dueTime || formatDate(task.dueDate)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View (>= md) */}
+          <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50/60">
                 <TableRow>
@@ -1092,7 +1219,7 @@ export const TasksPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3">
               <div className="space-y-1">
                 <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Action Type</label>
                 <select
@@ -1144,7 +1271,7 @@ export const TasksPage: React.FC = () => {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 items-start">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3 items-start">
               <div className="space-y-1">
                 <label className="h-5 text-xs font-semibold text-txt-primary flex items-center">Due Date</label>
                 <input

@@ -36,6 +36,8 @@ import {
   AlertCircle,
   UserX,
   UserCheck2,
+  Mail,
+  Phone,
 } from 'lucide-react';
 
 // Documented RBAC Capabilities strictly from docs/AUTH-RBAC.md Section 2.2
@@ -624,14 +626,34 @@ export const TeamPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedMember(member)}
-                    className="w-full h-8 text-xs font-medium cursor-pointer"
-                  >
-                    <Eye className="h-3.5 w-3.5 mr-1.5" /> View Profile & Capabilities
-                  </Button>
+                  <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedMember(member)}
+                      className="flex-1 h-8 text-xs font-medium cursor-pointer"
+                    >
+                      <Eye className="h-3.5 w-3.5 mr-1.5" /> Profile
+                    </Button>
+                    {member.email && (
+                      <a
+                        href={`mailto:${member.email}`}
+                        className="inline-flex items-center justify-center h-8 w-8 rounded-btn border border-border bg-slate-50 text-txt-secondary hover:text-txt-primary hover:bg-slate-100 transition-colors"
+                        title="Send Email"
+                      >
+                        <Mail className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                    {member.phone && (
+                      <a
+                        href={`tel:${member.phone}`}
+                        className="inline-flex items-center justify-center h-8 w-8 rounded-btn border border-border bg-slate-50 text-txt-secondary hover:text-txt-primary hover:bg-slate-100 transition-colors"
+                        title="Call Member"
+                      >
+                        <Phone className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -800,7 +822,7 @@ export const TeamPage: React.FC = () => {
             <input type="text" name="prevent_autofill_user" className="hidden" tabIndex={-1} aria-hidden="true" autoComplete="off" />
             <input type="password" name="prevent_autofill_pwd" className="hidden" tabIndex={-1} aria-hidden="true" autoComplete="off" />
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
                   First Name *
@@ -845,7 +867,7 @@ export const TeamPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
                   Role *

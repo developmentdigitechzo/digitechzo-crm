@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { crmApi } from '@/lib/api';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import {
   Building2,
   User,
@@ -35,6 +37,12 @@ import {
   Layout,
   FileText,
   Columns,
+  QrCode,
+  MessageSquare,
+  Users,
+  Download,
+  FileDown,
+  Loader2,
 } from 'lucide-react';
 
 export interface CustomColumnConfig {
@@ -122,6 +130,8 @@ export interface PaymentState {
   enableCrypto: boolean;
   bankPreset: string;
   bank: BankAccount;
+  customBankQr?: string;
+  showBankQr?: boolean;
   upiPreset: string;
   upi: UpiAccount;
   customUpiQr: string;
@@ -185,13 +195,27 @@ const CRYPTO_PRESETS = {
 };
 
 export const DEFAULT_BRAND_THEME = {
-  id: 'digitechzo_green',
-  name: 'Digitechzo Green',
-  primary: '#57B71B',
-  secondary: '#10b981',
+  id: 'digitechzo_indigo',
+  name: 'Digitechzo Indigo Modern',
+  primary: '#4F46E5',
+  secondary: '#3B82F6',
 };
 
-export const COLOR_PRESETS = [DEFAULT_BRAND_THEME];
+export const COLOR_PRESETS = [
+  DEFAULT_BRAND_THEME,
+  {
+    id: 'digitechzo_green',
+    name: 'Digitechzo Classic Green',
+    primary: '#57B71B',
+    secondary: '#10b981',
+  },
+  {
+    id: 'digitechzo_slate',
+    name: 'Slate Charcoal',
+    primary: '#0F172A',
+    secondary: '#475569',
+  },
+];
 
 export const InvoicesPage: React.FC = () => {
   const { user } = useAuth();
@@ -225,6 +249,16 @@ export const InvoicesPage: React.FC = () => {
     queryKey: ['company-profile'],
     queryFn: () => crmApi.getCompanyProfile(),
   });
+
+  // 1d. Fetch CRM Team Users for Signatory selection
+  const { data: usersResponse } = useQuery({
+    queryKey: ['invoice-team-users'],
+    queryFn: () => crmApi.getUsers({ limit: 100 }),
+  });
+  const teamUsers = useMemo(() => {
+    const list = (usersResponse as any)?.data || (usersResponse as any)?.items || [];
+    return Array.isArray(list) ? list : [];
+  }, [usersResponse]);
 
   // 2. Sender / Company Profile State
   const [sender, setSender] = useState(() => {
@@ -360,31 +394,76 @@ export const InvoicesPage: React.FC = () => {
   const [newColRequired, setNewColRequired] = useState(false);
   const [editingColId, setEditingColId] = useState<string | null>(null);
 
-  // 7. Payment Options
-  const [payment, setPayment] = useState<PaymentState>({
-    activeTab: 'bank' as 'bank' | 'upi' | 'crypto',
-    enableBank: true,
-    enableUpi: true,
-    enableCrypto: true,
-    bankPreset: INITIAL_BANK_ACCOUNT.id,
-    bank: INITIAL_BANK_ACCOUNT,
-    upiPreset: 'official',
-    upi: UPI_PRESETS.official,
-    customUpiQr: '',
-    showUpiQr: true,
-    cryptoPreset: 'usdt_trc20',
-    crypto: CRYPTO_PRESETS.usdt_trc20,
-    customCryptoQr: '',
-    showCryptoQr: true,
+  // 7. Payment Options (Loaded & Persisted in localStorage)
+  const [payment, setPayment] = useState<PaymentState>(() => {
+    const defaultState: PaymentState = {
+      activeTab: 'bank',
+      enableBank: true,
+      enableUpi: true,
+      enableCrypto: true,
+      bankPreset: INITIAL_BANK_ACCOUNT.id,
+      bank: INITIAL_BANK_ACCOUNT,
+      customBankQr: '',
+      showBankQr: true,
+      upiPreset: 'official',
+      upi: UPI_PRESETS.official,
+      customUpiQr: '',
+      showUpiQr: true,
+      cryptoPreset: 'usdt_trc20',
+      crypto: CRYPTO_PRESETS.usdt_trc20,
+      customCryptoQr: '',
+      showCryptoQr: true,
+    };
+    try {
+      const savedTab = localStorage.getItem('digitechzo_invoice_active_payment_tab') as 'bank' | 'upi' | 'crypto' | null;
+      const savedPaymentStr = localStorage.getItem('digitechzo_invoice_payment_settings');
+      if (savedPaymentStr) {
+        const parsed = JSON.parse(savedPaymentStr);
+        return {
+          ...defaultState,
+          ...parsed,
+          enableBank: parsed.enableBank !== undefined ? parsed.enableBank : true,
+          enableUpi: parsed.enableUpi !== undefined ? parsed.enableUpi : true,
+          enableCrypto: parsed.enableCrypto !== undefined ? parsed.enableCrypto : true,
+          activeTab: (savedTab && ['bank', 'upi', 'crypto'].includes(savedTab))
+            ? savedTab
+            : (parsed.activeTab || 'bank'),
+        };
+      }
+      if (savedTab && ['bank', 'upi', 'crypto'].includes(savedTab)) {
+        return {
+          ...defaultState,
+          activeTab: savedTab,
+        };
+      }
+    } catch {}
+    return defaultState;
   });
 
-  // 8. Notes, Signature & Footer
-  const [notesHeading, setNotesHeading] = useState('TERMS & INSTRUCTIONS:');
+  // Automatically persist payment state and active tab changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('digitechzo_invoice_payment_settings', JSON.stringify(payment));
+      localStorage.setItem('digitechzo_invoice_active_payment_tab', payment.activeTab);
+    } catch (err) {
+      console.warn('Failed to persist payment settings:', err);
+    }
+  }, [payment]);
+
+
+  // 8. Notes, Terms, Signature & Footer
+  const [showNotesBlock, setShowNotesBlock] = useState(true);
+  const [notesHeading, setNotesHeading] = useState('NOTE:');
   const [notes, setNotes] = useState(
-    'Thank you for partnering with Digitechzo! Please process payment within 15 days of invoice date.'
+    'Thank you for partnering with Digitechzo! We appreciate your business and continued trust.'
+  );
+  const [showTermsBlock, setShowTermsBlock] = useState(true);
+  const [termsHeading, setTermsHeading] = useState('TERMS:');
+  const [terms, setTerms] = useState(
+    'Payment is strictly due within 15 business days. Invoices overdue beyond 30 days are subject to a 1.5% monthly late finance assessment.'
   );
   const [signature, setSignature] = useState({
-    name: 'Alexander Vance',
+    name: 'Digitechzo Director',
     role: 'Managing Director',
     signatureImage: '',
   });
@@ -398,6 +477,10 @@ export const InvoicesPage: React.FC = () => {
 
   // 9b. Responsive Studio Layout View Mode ('split' | 'editor' | 'preview')
   const [studioViewMode, setStudioViewMode] = useState<'split' | 'editor' | 'preview'>('editor');
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [isExportingImage, setIsExportingImage] = useState(false);
+
+
 
   // 10. Modals & Notifications
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
@@ -834,7 +917,7 @@ export const InvoicesPage: React.FC = () => {
   const handleTogglePriceColumn = (enabled: boolean) => {
     setEnablePriceColumn(enabled);
     localStorage.setItem('digitechzo_invoice_enable_price', JSON.stringify(enabled));
-    showToast(enabled ? 'Full Amount column enabled' : 'Full Amount column hidden');
+    showToast(enabled ? 'Final Amount column enabled' : 'Final Amount column hidden');
   };
 
   // Toggle Advance Column & Persist in LocalStorage/Database Settings
@@ -1154,6 +1237,20 @@ export const InvoicesPage: React.FC = () => {
     e.target.value = '';
   };
 
+  // Custom Bank QR upload
+  const handleBankQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setPayment((prev) => ({ ...prev, customBankQr: base64, showBankQr: true }));
+      showToast('Custom Bank QR uploaded');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
   // Custom QR upload
   const handleUpiQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1213,6 +1310,10 @@ export const InvoicesPage: React.FC = () => {
         payment,
         notes,
         notesHeading,
+        showNotesBlock,
+        terms,
+        termsHeading,
+        showTermsBlock,
         signature,
         showSignatureBlock,
         footerText,
@@ -1254,6 +1355,7 @@ export const InvoicesPage: React.FC = () => {
         balanceDue,
         notes,
         notesHeading,
+        showNotesBlock,
         footerText,
         senderProfile: sender,
         bankDetails: payment.bank,
@@ -1308,12 +1410,18 @@ export const InvoicesPage: React.FC = () => {
     if (d.payment) {
       setPayment({
         ...d.payment,
+        showBankQr: d.payment.showBankQr ?? true,
+        customBankQr: d.payment.customBankQr || '',
         showUpiQr: d.payment.showUpiQr ?? true,
         showCryptoQr: d.payment.showCryptoQr ?? true,
       });
     }
     if (d.notes !== undefined) setNotes(d.notes);
     if (d.notesHeading !== undefined) setNotesHeading(d.notesHeading);
+    if (d.showNotesBlock !== undefined) setShowNotesBlock(d.showNotesBlock);
+    if (d.terms !== undefined) setTerms(d.terms);
+    if (d.termsHeading !== undefined) setTermsHeading(d.termsHeading);
+    if (d.showTermsBlock !== undefined) setShowTermsBlock(d.showTermsBlock);
     if (d.signature) setSignature(d.signature);
     if (d.showSignatureBlock !== undefined) setShowSignatureBlock(d.showSignatureBlock);
     if (d.footerText !== undefined) setFooterText(d.footerText);
@@ -1369,6 +1477,7 @@ export const InvoicesPage: React.FC = () => {
       status: 'UNPAID',
       amountPaid: 0,
     }));
+    setShowNotesBlock(true);
     setShowSignatureBlock(true);
     setActiveTheme(DEFAULT_BRAND_THEME);
     showToast('Invoice form reset');
@@ -1378,6 +1487,150 @@ export const InvoicesPage: React.FC = () => {
   const handlePrint = () => {
     window.print();
   };
+
+  // High-Resolution PDF Download using html2canvas & jsPDF
+  const handleDownloadPdf = async () => {
+    const element = document.getElementById('invoiceDocument');
+    if (!element) {
+      showToast('Invoice preview document not found');
+      return;
+    }
+
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    showToast('Generating high-resolution PDF...');
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 1024,
+        onclone: (clonedDoc) => {
+          const clonedEl = clonedDoc.getElementById('invoiceDocument');
+          if (clonedEl) {
+            clonedEl.style.width = '800px';
+            clonedEl.style.maxWidth = '800px';
+            clonedEl.style.boxShadow = 'none';
+            clonedEl.style.borderRadius = '0';
+            clonedEl.style.border = 'none';
+          }
+        },
+      });
+
+      const imgData = canvas.toDataURL('image/png', 1.0);
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const pdfWidth = pdf.internal.pageSize.getWidth(); // 210mm
+      const pdfPageHeight = pdf.internal.pageSize.getHeight(); // 297mm
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      // First page
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+      heightLeft -= pdfPageHeight;
+
+      // Additional pages if content is long
+      while (heightLeft > 5) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
+        heightLeft -= pdfPageHeight;
+      }
+
+      const safeNum = (meta.number || 'INVOICE').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeClient = (client.name || 'Digitechzo').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `${safeNum}_${safeClient}.pdf`;
+
+      pdf.save(fileName);
+      showToast(`Downloaded ${fileName}`);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      showToast('Export failed. Opening browser print dialog as fallback...');
+      window.print();
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
+  // High-Resolution Image Download (.PNG)
+  const handleDownloadImage = async () => {
+    const element = document.getElementById('invoiceDocument');
+    if (!element) {
+      showToast('Invoice preview document not found');
+      return;
+    }
+
+    if (isExportingImage) return;
+    setIsExportingImage(true);
+    showToast('Generating invoice image...');
+
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        windowWidth: 1024,
+        onclone: (clonedDoc) => {
+          const clonedEl = clonedDoc.getElementById('invoiceDocument');
+          if (clonedEl) {
+            clonedEl.style.width = '800px';
+            clonedEl.style.maxWidth = '800px';
+            clonedEl.style.boxShadow = 'none';
+            clonedEl.style.borderRadius = '0';
+            clonedEl.style.border = 'none';
+          }
+        },
+      });
+
+      const safeNum = (meta.number || 'INVOICE').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeClient = (client.name || 'Digitechzo').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `${safeNum}_${safeClient}.png`;
+
+      const link = document.createElement('a');
+      link.download = fileName;
+      link.href = canvas.toDataURL('image/png', 1.0);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showToast(`Downloaded ${fileName}`);
+    } catch (err) {
+      console.error('Image export failed:', err);
+      showToast('Failed to generate invoice image');
+    } finally {
+      setIsExportingImage(false);
+    }
+  };
+
+  // Handle Switching Active Payment Method Tab (used both in Settings and on Live Invoice Paper)
+  const handlePaymentTabChange = (tab: 'bank' | 'upi' | 'crypto') => {
+    setPayment((p) => ({
+      ...p,
+      activeTab: tab,
+      enableBank: tab === 'bank' ? true : p.enableBank,
+      enableUpi: tab === 'upi' ? true : p.enableUpi,
+      enableCrypto: tab === 'crypto' ? true : p.enableCrypto,
+    }));
+    try {
+      localStorage.setItem('digitechzo_invoice_active_payment_tab', tab);
+    } catch {}
+  };
+
+  // Currently active payment method directly controlled by user selection
+  const activePaymentMethod: 'bank' | 'upi' | 'crypto' = payment.activeTab || 'bank';
+
 
   // Currently selected UPI Account
   const currentUpiAccount = useMemo(() => {
@@ -1405,30 +1658,75 @@ export const InvoicesPage: React.FC = () => {
     );
   }, [savedCryptoWallets, payment.cryptoPreset, payment.crypto]);
 
-  // UPI QR Code URL
-  const upiQrUrl = useMemo(() => {
-    if (payment.showUpiQr === false) return '';
-    if (payment.customUpiQr) return payment.customUpiQr;
-    if (!payment.upi.upiId) return '';
-    const upiUrl = `upi://pay?pa=${encodeURIComponent(payment.upi.upiId)}&pn=${encodeURIComponent(
-      payment.upi.payeeName || sender.name
-    )}&am=${grandTotal.toFixed(2)}&tn=${encodeURIComponent(
-      payment.upi.note || `Invoice ${meta.number}`
-    )}&cu=INR`;
-    return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
-      upiUrl
-    )}`;
-  }, [payment.showUpiQr, payment.customUpiQr, payment.upi, sender.name, grandTotal, meta.number]);
 
-  // Crypto QR Code URL
-  const cryptoQrUrl = useMemo(() => {
-    if (payment.showCryptoQr === false) return '';
-    if (payment.customCryptoQr) return payment.customCryptoQr;
-    if (!payment.crypto.address) return '';
-    return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
-      payment.crypto.address
-    )}`;
-  }, [payment.showCryptoQr, payment.customCryptoQr, payment.crypto.address]);
+
+  // Active Payment QR Code URL matching selected payment method
+  const activePaymentQrUrl = useMemo(() => {
+    const payableAmount = balanceDue > 0 ? balanceDue : grandTotal;
+    if (activePaymentMethod === 'upi') {
+      if (payment.showUpiQr === false) return '';
+      if (payment.customUpiQr) return payment.customUpiQr;
+      if (!payment.upi.upiId) return '';
+      const upiUrl = `upi://pay?pa=${encodeURIComponent(payment.upi.upiId)}&pn=${encodeURIComponent(
+        payment.upi.payeeName || sender.name || 'Digitechzo'
+      )}&am=${payableAmount.toFixed(2)}&tn=${encodeURIComponent(
+        payment.upi.note || `Invoice ${meta.number}`
+      )}&cu=INR`;
+      return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUrl)}`;
+    }
+
+    if (activePaymentMethod === 'crypto') {
+      if (payment.showCryptoQr === false) return '';
+      if (payment.customCryptoQr) return payment.customCryptoQr;
+      if (!payment.crypto.address) return '';
+      return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+        payment.crypto.address
+      )}`;
+    }
+
+    if (activePaymentMethod === 'bank') {
+      if (payment.showBankQr === false) return '';
+      if (payment.customBankQr) return payment.customBankQr;
+      // Bank Transfer QR: generates instant scan & pay to bank account via UPI / IMPS or bank wire details
+      if (payment.customUpiQr) return payment.customUpiQr;
+      if (payment.upi.upiId) {
+        const upiUrl = `upi://pay?pa=${encodeURIComponent(payment.upi.upiId)}&pn=${encodeURIComponent(
+          payment.bank.accountName || sender.name || 'Digitechzo'
+        )}&am=${payableAmount.toFixed(2)}&tn=${encodeURIComponent(
+          `Invoice ${meta.number || 'DIGI-2026-001'} Bank Transfer`
+        )}&cu=INR`;
+        return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiUrl)}`;
+      }
+      if (payment.bank.accountNumber && payment.bank.ifscSwift) {
+        const cleanIfsc = payment.bank.ifscSwift.split('/')[0].trim().replace(/[^A-Za-z0-9]/g, '');
+        const bankUpi = `upi://pay?pa=${encodeURIComponent(payment.bank.accountNumber)}@${encodeURIComponent(
+          cleanIfsc
+        )}.ifsc.npci&pn=${encodeURIComponent(
+          payment.bank.accountName || sender.name || 'Digitechzo'
+        )}&am=${payableAmount.toFixed(2)}&cu=INR`;
+        return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(bankUpi)}`;
+      }
+      const bankDetailsText = `Bank: ${payment.bank.bankName || 'HDFC Bank Ltd'}\nA/C: ${payment.bank.accountNumber || '50200098765432'}\nIFSC: ${payment.bank.ifscSwift || 'HDFC0001234'}\nHolder: ${payment.bank.accountName || sender.name || 'Digitechzo'}`;
+      return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(bankDetailsText)}`;
+    }
+
+    return '';
+  }, [
+    activePaymentMethod,
+    payment.showBankQr,
+    payment.customBankQr,
+    payment.showUpiQr,
+    payment.customUpiQr,
+    payment.upi,
+    payment.showCryptoQr,
+    payment.customCryptoQr,
+    payment.crypto.address,
+    payment.bank,
+    sender.name,
+    balanceDue,
+    grandTotal,
+    meta.number,
+  ]);
 
   // Filtered saved invoices
   const filteredInvoices = useMemo(() => {
@@ -1443,7 +1741,7 @@ export const InvoicesPage: React.FC = () => {
   }, [savedInvoices, historySearch]);
 
   return (
-    <div className="space-y-4 select-none pb-12">
+    <div className="space-y-4 select-none pb-20 lg:pb-12">
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-3 text-xs font-semibold text-white shadow-2xl animate-in fade-in slide-in-from-bottom-3">
@@ -1453,34 +1751,62 @@ export const InvoicesPage: React.FC = () => {
       )}
 
       {/* Top Header & Quick Actions Bar */}
-      <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-3.5 bg-slate-900 text-white p-3.5 sm:p-4 rounded-card shadow-md">
+      <div className="no-print flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-slate-900 text-white p-3.5 sm:p-4 rounded-2xl shadow-lg border border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#57B71B] to-emerald-400 text-white shadow-md">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-[#57B71B] to-emerald-400 text-white shadow-md shrink-0">
             <CreditCard className="h-5 w-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-bold text-white tracking-tight">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-sm sm:text-lg font-extrabold text-white tracking-tight leading-tight">
                 Digitechzo <span className="text-[#57B71B]">Invoice Studio</span>
               </h1>
-              <span className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Live Admin Engine
+              <span className="hidden sm:inline-block px-2 py-0.5 text-[9.5px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                PRO BILLING ENGINE
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Multi-payment admin billing, live invoice paper preview & print generator
+            <p className="text-[11px] text-slate-400 truncate sm:whitespace-normal">
+              Design, customize & dispatch modern tax-compliant invoices
             </p>
           </div>
         </div>
 
-        {/* Action Buttons & View Mode Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* View Mode Switcher (Editor / Preview / Split) */}
-          <div className="flex items-center bg-slate-800 p-0.5 rounded-btn border border-slate-700/80 mr-1">
+        {/* View Mode & Actions Container */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto">
+          {/* Mobile Segmented Switcher (< 1024px) */}
+          <div className="lg:hidden w-full flex bg-slate-800 p-0.5 rounded-xl border border-slate-700/80">
             <button
               type="button"
               onClick={() => setStudioViewMode('editor')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                studioViewMode !== 'preview'
+                  ? 'bg-[#57B71B] text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <Layout className="h-3.5 w-3.5" />
+              <span>Editor Only</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudioViewMode('preview')}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                studioViewMode === 'preview'
+                  ? 'bg-[#57B71B] text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <FileText className="h-3.5 w-3.5" />
+              <span>Full Preview</span>
+            </button>
+          </div>
+
+          {/* Desktop View Mode Switcher (>= 1024px) */}
+          <div className="hidden lg:flex items-center bg-slate-800/90 p-1 rounded-xl border border-slate-700/80 mr-1 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setStudioViewMode('editor')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 studioViewMode === 'editor'
                   ? 'bg-[#57B71B] text-white shadow-xs font-bold'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
@@ -1488,13 +1814,12 @@ export const InvoicesPage: React.FC = () => {
               title="Full Width Spacious Editor"
             >
               <Layout className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Editor Only</span>
-              <span className="sm:hidden">Edit</span>
+              <span>Editor Only</span>
             </button>
             <button
               type="button"
               onClick={() => setStudioViewMode('split')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 studioViewMode === 'split'
                   ? 'bg-[#57B71B] text-white shadow-xs font-bold'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
@@ -1502,13 +1827,12 @@ export const InvoicesPage: React.FC = () => {
               title="Side-by-Side Split View"
             >
               <Columns className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Side-by-Side</span>
-              <span className="sm:hidden">Split</span>
+              <span>Side-by-Side</span>
             </button>
             <button
               type="button"
               onClick={() => setStudioViewMode('preview')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 studioViewMode === 'preview'
                   ? 'bg-[#57B71B] text-white shadow-xs font-bold'
                   : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
@@ -1516,61 +1840,88 @@ export const InvoicesPage: React.FC = () => {
               title="Full Width Live Invoice Paper Preview"
             >
               <FileText className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Full Preview</span>
-              <span className="sm:hidden">Preview</span>
+              <span>Full Preview</span>
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => handleSaveInvoice()}
-            disabled={isSavingInvoice}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-btn text-xs font-bold bg-[#57B71B] hover:bg-[#469815] text-white transition-all shadow-sm cursor-pointer disabled:opacity-50"
-            title="Save Invoice to Database & History"
-          >
-            <Bookmark className="h-3.5 w-3.5" /> {isSavingInvoice ? 'Saving...' : 'Save Invoice'}
-          </button>
+          {/* Action Buttons Toolbar */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            {/* Download PDF Button */}
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isExportingPdf}
+              className="flex-initial flex items-center justify-center gap-1.5 h-8.5 px-3.5 rounded-xl text-xs font-bold bg-[#57B71B] hover:bg-[#49a016] text-white transition-all shadow-md active:scale-95 cursor-pointer disabled:opacity-50 shrink-0"
+              title="Download high-resolution PDF document"
+            >
+              {isExportingPdf ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              <span>{isExportingPdf ? 'Exporting...' : 'Download PDF'}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => handleSaveInvoice('DRAFT')}
-            disabled={isSavingInvoice}
-            className="flex items-center gap-1.5 h-8 px-2.5 rounded-btn text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer disabled:opacity-50"
-            title="Save as Draft"
-          >
-            Draft
-          </button>
+            {/* Save Invoice */}
+            <button
+              type="button"
+              onClick={() => handleSaveInvoice()}
+              disabled={isSavingInvoice}
+              className="flex-initial flex items-center justify-center gap-1.5 h-8.5 px-3 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 transition-all shadow-xs cursor-pointer disabled:opacity-50 shrink-0"
+              title="Save Invoice to Database & History"
+            >
+              <Bookmark className="h-3.5 w-3.5 text-emerald-400" />
+              <span>{isSavingInvoice ? 'Saving...' : 'Save'}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setIsHistoryModalOpen(true)}
-            className="relative flex items-center gap-1.5 h-8 px-2.5 rounded-btn text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
-          >
-            <FolderOpen className="h-3.5 w-3.5 text-blue-400" /> History
-            {savedInvoices.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-blue-500 text-white">
-                {savedInvoices.length}
-              </span>
-            )}
-          </button>
+            {/* Draft */}
+            <button
+              type="button"
+              onClick={() => handleSaveInvoice('DRAFT')}
+              disabled={isSavingInvoice}
+              className="flex-initial flex items-center justify-center gap-1 h-8.5 px-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer disabled:opacity-50"
+              title="Save as Draft"
+            >
+              Draft
+            </button>
 
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-btn text-xs font-bold bg-white text-slate-900 hover:bg-slate-100 transition-colors shadow-sm cursor-pointer"
-            title="Print or Save as PDF"
-          >
-            <Printer className="h-3.5 w-3.5 text-slate-700" /> Print / PDF
-          </button>
+            {/* History */}
+            <button
+              type="button"
+              onClick={() => setIsHistoryModalOpen(true)}
+              className="flex-initial flex items-center justify-center gap-1 h-8.5 px-2.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors cursor-pointer"
+              title="View Saved Invoices History"
+            >
+              <FolderOpen className="h-3.5 w-3.5 text-blue-400" />
+              <span>History</span>
+              {savedInvoices.length > 0 && (
+                <span className="ml-0.5 px-1.5 py-0.2 text-[9.5px] font-bold rounded-full bg-blue-500 text-white">
+                  {savedInvoices.length}
+                </span>
+              )}
+            </button>
 
-          <button
-            type="button"
-            onClick={handleResetForm}
-            className="flex items-center justify-center h-8 w-8 rounded-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
-            title="Reset Form"
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
+            {/* Print / Browser PDF */}
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="flex-initial flex items-center justify-center gap-1.5 h-8.5 px-3 rounded-xl text-xs font-bold bg-white text-slate-900 hover:bg-slate-100 transition-all shadow-xs cursor-pointer active:scale-95"
+              title="Print or Save as PDF via browser"
+            >
+              <Printer className="h-3.5 w-3.5 text-slate-700" />
+              <span>Print</span>
+            </button>
+
+            {/* Reset Form */}
+            <button
+              type="button"
+              onClick={handleResetForm}
+              className="flex items-center justify-center h-8.5 w-8.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer shrink-0"
+              title="Reset Form to Defaults"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1718,7 +2069,8 @@ export const InvoicesPage: React.FC = () => {
                                   : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                               }`}
                             >
-                              {preset.label} ({preset.h}px)
+                              <span className="hidden sm:inline">{preset.label} </span>
+                              <span>{preset.h}px</span>
                             </button>
                           ))}
                         </div>
@@ -2087,7 +2439,7 @@ export const InvoicesPage: React.FC = () => {
                       </button>
                     </div>
 
-                    {/* 2. Full Amount Column Toggle */}
+                    {/* 2. Final Amount Column Toggle */}
                     <div className="flex items-center justify-between p-1.5 rounded bg-white border border-slate-200">
                       <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-txt-primary">
                         <input
@@ -2097,13 +2449,13 @@ export const InvoicesPage: React.FC = () => {
                           onChange={(e) => handleTogglePriceColumn(e.target.checked)}
                           className="rounded accent-[#57B71B] cursor-pointer"
                         />
-                        <span>Full Amount</span>
+                        <span>Final Amount</span>
                       </label>
                       <button
                         type="button"
                         onClick={() => handleTogglePriceColumn(!enablePriceColumn)}
                         className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
-                        title={enablePriceColumn ? 'Hide Full Amount column' : 'Show Full Amount column'}
+                        title={enablePriceColumn ? 'Hide Final Amount column' : 'Show Final Amount column'}
                       >
                         {enablePriceColumn ? <Eye className="h-3 w-3 text-[#57B71B]" /> : <EyeOff className="h-3 w-3 text-slate-400" />}
                       </button>
@@ -2119,14 +2471,14 @@ export const InvoicesPage: React.FC = () => {
                           onChange={(e) => handleToggleAdvanceColumn(e.target.checked)}
                           className="rounded accent-[#57B71B] cursor-pointer"
                         />
-                        <span>Advanced</span>
+                        <span>Advanced Amount</span>
                       </label>
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => handleToggleAdvanceColumn(!enableAdvanceColumn)}
                           className="text-slate-400 hover:text-slate-700 p-0.5 cursor-pointer"
-                          title={enableAdvanceColumn ? 'Hide Advanced column' : 'Show Advanced column'}
+                          title={enableAdvanceColumn ? 'Hide Advanced Amount column' : 'Show Advanced Amount column'}
                         >
                           {enableAdvanceColumn ? <Eye className="h-3 w-3 text-[#57B71B]" /> : <EyeOff className="h-3 w-3 text-slate-400" />}
                         </button>
@@ -2317,9 +2669,9 @@ export const InvoicesPage: React.FC = () => {
                     />
 
                     {/* Standard Numeric Fields: Qty, Full Amount, Advanced Amount */}
-                    <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                    <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-3 gap-2">
                       {enableQtyColumn && (
-                        <div className="flex-1 min-w-[70px]">
+                        <div className="col-span-1">
                           <div className="flex items-center justify-between mb-0.5">
                             <label className="text-[10px] text-txt-muted block">Qty</label>
                             <button
@@ -2350,20 +2702,20 @@ export const InvoicesPage: React.FC = () => {
                       )}
 
                       {enablePriceColumn && (
-                        <div className="flex-[2] min-w-[110px]">
+                        <div className="col-span-1">
                           <div className="flex items-center justify-between mb-0.5">
                             <label className="text-[10px] text-txt-muted block truncate">
-                              Full Amount ({meta.currency})
+                              Final Amount ({meta.currency})
                             </label>
                             <button
                               type="button"
                               onClick={() => {
-                                if (window.confirm('Hide Full Amount column from invoice?')) {
+                                if (window.confirm('Hide Final Amount column from invoice?')) {
                                   handleTogglePriceColumn(false);
                                 }
                               }}
                               className="text-[9px] text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                              title="Hide / Remove Full Amount column"
+                              title="Hide / Remove Final Amount column"
                             >
                               <X className="h-2.5 w-2.5" />
                             </button>
@@ -2384,10 +2736,10 @@ export const InvoicesPage: React.FC = () => {
                       )}
 
                       {enableAdvanceColumn && (
-                        <div className="flex-[2] min-w-[120px]">
+                        <div className="col-span-1 xs:col-span-2 sm:col-span-1">
                           <div className="flex items-center justify-between mb-0.5">
                             <label className="text-[10px] text-txt-muted block truncate">
-                              Advanced Amount ({meta.currency})
+                              Advance ({meta.currency})
                             </label>
                             <div className="flex items-center gap-1">
                               {typeof item.advanceAmount === 'number' && item.advanceAmount > 0 && (
@@ -2534,49 +2886,48 @@ export const InvoicesPage: React.FC = () => {
               <span className="text-[10px] text-txt-muted group-open:rotate-180 transition-transform">▼</span>
             </summary>
             <div className="p-3.5 space-y-3 text-xs">
-              {/* Payment Tab Selector */}
-              <div className="flex rounded-btn bg-slate-100 p-0.5 border border-border">
-                <button
-                  type="button"
-                  onClick={() => setPayment((p) => ({ ...p, activeTab: 'bank' }))}
-                  className={`flex-1 py-1.5 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
-                    payment.activeTab === 'bank' ? 'bg-white text-txt-primary shadow-xs' : 'text-txt-muted'
-                  }`}
-                >
-                  Bank Transfer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPayment((p) => ({ ...p, activeTab: 'upi' }))}
-                  className={`flex-1 py-1.5 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
-                    payment.activeTab === 'upi' ? 'bg-white text-txt-primary shadow-xs' : 'text-txt-muted'
-                  }`}
-                >
-                  UPI Pay / QR
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPayment((p) => ({ ...p, activeTab: 'crypto' }))}
-                  className={`flex-1 py-1.5 text-xs font-semibold rounded text-center transition-all cursor-pointer ${
-                    payment.activeTab === 'crypto' ? 'bg-white text-txt-primary shadow-xs' : 'text-txt-muted'
-                  }`}
-                >
-                  Crypto Wallet
-                </button>
+              {/* Payment Tab Selector to Edit Details & Switch Active View */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                  Select Tab to Configure & Set Active:
+                </label>
+                <div className="flex rounded-btn bg-slate-100 p-0.5 border border-border">
+                  <button
+                    type="button"
+                    onClick={() => handlePaymentTabChange('bank')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      payment.activeTab === 'bank' ? 'bg-white text-txt-primary shadow-xs font-bold' : 'text-txt-muted'
+                    }`}
+                  >
+                    <Building2 className="h-3.5 w-3.5" />
+                    <span>Bank Transfer</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePaymentTabChange('upi')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      payment.activeTab === 'upi' ? 'bg-white text-txt-primary shadow-xs font-bold' : 'text-txt-muted'
+                    }`}
+                  >
+                    <QrCode className="h-3.5 w-3.5" />
+                    <span>UPI Pay / QR</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handlePaymentTabChange('crypto')}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                      payment.activeTab === 'crypto' ? 'bg-white text-txt-primary shadow-xs font-bold' : 'text-txt-muted'
+                    }`}
+                  >
+                    <Wallet className="h-3.5 w-3.5" />
+                    <span>Crypto Wallet</span>
+                  </button>
+                </div>
               </div>
 
               {/* Tab Content: Bank Transfer */}
               {payment.activeTab === 'bank' && (
                 <div className="space-y-3 pt-1">
-                  <label className="flex items-center gap-2 cursor-pointer font-semibold text-txt-primary">
-                    <input
-                      type="checkbox"
-                      checked={payment.enableBank}
-                      onChange={(e) => setPayment((p) => ({ ...p, enableBank: e.target.checked }))}
-                      className="rounded accent-[#57B71B]"
-                    />
-                    <span>Enable Bank Transfer Option on Invoice</span>
-                  </label>
 
                   <div>
                     <label className="text-[11px] font-semibold text-[#57B71B] block mb-1">
@@ -2925,21 +3276,98 @@ export const InvoicesPage: React.FC = () => {
                       </button>
                     )}
                   </div>
+
+                  {/* Bank QR Code Option: Upload Custom QR Image or Auto-generated */}
+                  <div className="border border-slate-200 rounded-btn p-2.5 bg-slate-50 space-y-2 mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-txt-primary block">Bank QR Code Image:</span>
+                      {payment.showBankQr === false ? (
+                        <span className="text-[10px] text-rose-600 font-semibold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                          QR Code Removed
+                        </span>
+                      ) : payment.customBankQr ? (
+                        <span className="text-[10px] text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                          Custom Image Active
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium">Dynamic Auto-Generated</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="text-xs text-txt-secondary cursor-pointer">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-border bg-white hover:bg-slate-50 text-[11px] font-semibold text-txt-primary shadow-2xs">
+                          <Upload className="h-3 w-3" /> Upload Bank QR Image
+                        </span>
+                        <input type="file" accept="image/*" onChange={handleBankQrUpload} className="hidden" />
+                      </label>
+
+                      {/* Remove/Delete Icon Button */}
+                      {payment.showBankQr !== false ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, showBankQr: false, customBankQr: '' }));
+                            showToast('Bank QR code removed from invoice');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-rose-200 bg-white hover:bg-rose-50 text-[11px] font-semibold text-rose-600 shadow-2xs transition-colors cursor-pointer"
+                          title="Remove QR code from invoice"
+                        >
+                          <Trash2 className="h-3 w-3 text-rose-500" /> Remove QR
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, showBankQr: true }));
+                            showToast('Bank QR code restored');
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-[#57B71B]/30 bg-[#57B71B]/10 hover:bg-[#57B71B]/20 text-[11px] font-semibold text-[#57B71B] shadow-2xs transition-colors cursor-pointer"
+                        >
+                          <Plus className="h-3 w-3" /> Restore Dynamic QR
+                        </button>
+                      )}
+
+                      {payment.customBankQr && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayment((p) => ({ ...p, customBankQr: '' }));
+                            showToast('Reverted to dynamic Bank QR');
+                          }}
+                          className="text-xs text-blue-600 hover:underline cursor-pointer font-medium"
+                        >
+                          Use Auto-Generated
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Thumbnail preview if custom QR is uploaded */}
+                    {payment.customBankQr && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <img
+                          src={payment.customBankQr}
+                          alt="Custom Bank QR Preview"
+                          className="h-12 w-12 object-contain rounded border border-slate-200 bg-white p-0.5"
+                        />
+                        <span className="text-[10px] text-emerald-700 font-semibold">Custom QR active and displayed on invoice</span>
+                      </div>
+                    )}
+
+                    <p className="text-[10px] text-txt-muted">
+                      {payment.showBankQr === false
+                        ? 'QR code hidden on invoice paper.'
+                        : payment.customBankQr
+                        ? 'Using uploaded custom Bank QR code image.'
+                        : 'Auto-generating dynamic QR code matching account & IFSC details.'}
+                    </p>
+                  </div>
                 </div>
               )}
 
               {/* Tab Content: UPI */}
               {payment.activeTab === 'upi' && (
                 <div className="space-y-3 pt-1">
-                  <label className="flex items-center gap-2 cursor-pointer font-semibold text-txt-primary">
-                    <input
-                      type="checkbox"
-                      checked={payment.enableUpi}
-                      onChange={(e) => setPayment((p) => ({ ...p, enableUpi: e.target.checked }))}
-                      className="rounded accent-[#57B71B]"
-                    />
-                    <span>Enable UPI QR & ID Option on Invoice</span>
-                  </label>
 
                   {/* UPI Account / Destination Dropdown */}
                   <div className="relative" ref={upiDropdownRef}>
@@ -3341,15 +3769,6 @@ export const InvoicesPage: React.FC = () => {
               {/* Tab Content: Crypto */}
               {payment.activeTab === 'crypto' && (
                 <div className="space-y-3 pt-1">
-                  <label className="flex items-center gap-2 cursor-pointer font-semibold text-txt-primary">
-                    <input
-                      type="checkbox"
-                      checked={payment.enableCrypto}
-                      onChange={(e) => setPayment((p) => ({ ...p, enableCrypto: e.target.checked }))}
-                      className="rounded accent-[#57B71B]"
-                    />
-                    <span>Enable Crypto Wallet Option on Invoice</span>
-                  </label>
 
                   {/* Custom Searchable & Addable Crypto Wallet Dropdown */}
                   <div className="relative" ref={cryptoDropdownRef}>
@@ -3756,12 +4175,12 @@ export const InvoicesPage: React.FC = () => {
             </div>
           </details>
 
-          {/* Card 6: Tax, Discount, Notes & Signatures */}
+          {/* Card 6: Financial Adjustments (Tax & Discounts) */}
           <details open className="group rounded-card border border-border bg-white shadow-xs overflow-hidden">
             <summary className="flex items-center justify-between p-3.5 bg-slate-50 border-b border-border font-bold text-xs text-txt-primary cursor-pointer hover:bg-slate-100 transition-colors list-none">
               <div className="flex items-center gap-2">
-                <Calculator className="h-4 w-4 text-rose-500" />
-                <span>Tax, Discount & Signatures</span>
+                <Calculator className="h-4 w-4 text-indigo-600" />
+                <span>Tax, Discount & Financial Adjustments</span>
               </div>
               <span className="text-[10px] text-txt-muted group-open:rotate-180 transition-transform">▼</span>
             </summary>
@@ -3820,151 +4239,468 @@ export const InvoicesPage: React.FC = () => {
                   />
                 </div>
               </div>
+            </div>
+          </details>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-[11px] font-semibold text-txt-secondary block">
-                    Terms & Instructions Heading
-                  </label>
-                  <div className="flex items-center gap-1">
-                    {[
-                      'TERMS & INSTRUCTIONS:',
-                      'TERMS & CONDITIONS:',
-                      'PAYMENT TERMS & NOTES:',
-                      'SPECIAL INSTRUCTIONS:',
-                    ].map((preset) => (
-                      <button
-                        key={preset}
-                        type="button"
-                        onClick={() => setNotesHeading(preset)}
-                        className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
-                          notesHeading === preset
-                            ? 'bg-[#57B71B] text-white border-[#57B71B] font-bold'
-                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        {preset.replace(':', '')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  value={notesHeading}
-                  onChange={(e) => setNotesHeading(e.target.value)}
-                  placeholder="e.g. TERMS & INSTRUCTIONS:"
-                  className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs font-bold text-txt-primary"
-                />
-
-                <div className="pt-1">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <label className="text-[11px] font-semibold text-txt-secondary">
-                      Terms, Notes & Special Instructions Body Text
-                    </label>
-                    <span className="text-[10px] text-txt-muted">Editable multiline text</span>
-                  </div>
-                  <textarea
-                    rows={3}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Enter payment instructions, terms and conditions, warranty info..."
-                    className="w-full rounded-input border border-border bg-white p-2.5 text-xs text-txt-primary leading-relaxed"
-                  />
-                </div>
+          {/* Card 7: Separated Notes & Terms Control */}
+          <details open className="group rounded-card border border-border bg-white shadow-xs overflow-hidden">
+            <summary className="flex items-center justify-between p-3.5 bg-slate-50 border-b border-border font-bold text-xs text-txt-primary cursor-pointer hover:bg-slate-100 transition-colors list-none">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-indigo-600" />
+                <span>Notes & Terms of Service (Separated)</span>
               </div>
-
-              <div className="pt-2 border-t border-border">
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100">
-                  <label className="text-[11px] font-bold text-txt-primary flex items-center gap-2 cursor-pointer">
+              <span className="text-[10px] text-txt-muted group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            <div className="p-3.5 space-y-4 text-xs">
+              {/* SECTION 1: NOTE: CONTROL */}
+              <div className="p-3 rounded-lg border border-slate-200/90 bg-slate-50/50 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <div className="flex items-center gap-1.5">
+                    <MessageSquare className="h-3.5 w-3.5 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">1. Note Section (Note:)</span>
+                  </div>
+                  <label className="text-[11px] font-bold text-txt-primary flex items-center gap-1.5 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={showSignatureBlock}
-                      onChange={(e) => setShowSignatureBlock(e.target.checked)}
-                      className="rounded text-[#57B71B] focus:ring-[#57B71B]"
+                      checked={showNotesBlock}
+                      onChange={(e) => setShowNotesBlock(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-600 cursor-pointer"
                     />
-                    <span>Include Digital Authorization Section</span>
+                    <span>{showNotesBlock ? 'Include Note' : 'Hidden'}</span>
                   </label>
-                  {showSignatureBlock && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSignatureBlock(false)}
-                      className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
-                    >
-                      Remove Section
-                    </button>
-                  )}
                 </div>
 
-                {showSignatureBlock && (
+                {showNotesBlock ? (
                   <div className="space-y-2.5">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      <div>
-                        <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">
-                          Authorized Signatory Name
+                    {/* Note Heading & Presets */}
+                    <div className="space-y-1.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                          Note Heading
                         </label>
-                        <input
-                          type="text"
-                          value={signature.name}
-                          onChange={(e) => setSignature({ ...signature, name: e.target.value })}
-                          className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
-                        />
+                        <div className="flex flex-wrap items-center gap-1">
+                          {['NOTE:', 'SPECIAL NOTE:', 'PAYMENT NOTE:', 'CLIENT NOTE:'].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setNotesHeading(preset)}
+                              className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                                notesHeading === preset
+                                  ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">Designation / Role</label>
-                        <input
-                          type="text"
-                          value={signature.role}
-                          onChange={(e) => setSignature({ ...signature, role: e.target.value })}
-                          className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs"
-                        />
+                      <input
+                        type="text"
+                        value={notesHeading}
+                        onChange={(e) => setNotesHeading(e.target.value)}
+                        placeholder="e.g. NOTE:"
+                        className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs font-bold text-txt-primary"
+                      />
+                    </div>
+
+                    {/* Note Presets */}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                        Quick Note Presets:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotes('Thank you for partnering with Digitechzo! We appreciate your business and continued trust.');
+                            showToast('Loaded thank you note');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">Thank You Note</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">Appreciation & trust</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotes('Please reference this invoice number with all payments to ensure accurate and prompt account crediting.');
+                            showToast('Loaded payment reference note');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">Payment Reference</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">Quote invoice #</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotes('For any billing queries or technical support, please contact our accounts team at billing@digitechzo.com.');
+                            showToast('Loaded support contact note');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">Support Helpdesk</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">Billing team contact</span>
+                        </button>
                       </div>
                     </div>
 
-                    {/* Signature Image Upload / Preview in Editor */}
-                    <div>
-                      <label className="text-[11px] font-semibold text-txt-secondary block mb-1">
-                        Signatory Signature Image (Optional)
-                      </label>
-                      {signature.signatureImage ? (
-                        <div className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-200 rounded-md">
-                          <img
-                            src={signature.signatureImage}
-                            alt="Signature"
-                            className="h-9 max-w-[120px] object-contain bg-white border border-slate-200 rounded p-1"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setSignature({ ...signature, signatureImage: '' })}
-                            className="text-xs font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
-                          >
-                            Remove Signature
-                          </button>
-                        </div>
-                      ) : (
-                        <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn border border-dashed border-slate-300 hover:border-[#57B71B] bg-slate-50 hover:bg-emerald-50/40 text-xs font-semibold text-slate-700 transition-colors cursor-pointer w-fit">
-                          <Upload className="h-3.5 w-3.5 text-slate-500" />
-                          <span>+ Upload Signature Image</span>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onload = () => {
-                                  setSignature((s) => ({ ...s, signatureImage: reader.result as string }));
-                                };
-                                reader.readAsDataURL(file);
-                              }
-                            }}
-                            className="hidden"
-                          />
+                    {/* Note Content Textarea */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                          Note Text Content
                         </label>
-                      )}
+                        <span className="text-[10px] text-txt-muted">Editable note text</span>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Enter note text for client..."
+                        className="w-full rounded-input border border-border bg-white p-2.5 text-xs text-txt-primary leading-relaxed"
+                      />
                     </div>
                   </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic">Note section is hidden on invoice report.</p>
                 )}
               </div>
+
+              {/* SECTION 2: TERMS: CONTROL */}
+              <div className="p-3 rounded-lg border border-slate-200/90 bg-slate-50/50 space-y-3">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+                  <div className="flex items-center gap-1.5">
+                    <FileText className="h-3.5 w-3.5 text-indigo-600" />
+                    <span className="text-xs font-bold text-slate-800">2. Terms of Service Section (Terms:)</span>
+                  </div>
+                  <label className="text-[11px] font-bold text-txt-primary flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showTermsBlock}
+                      onChange={(e) => setShowTermsBlock(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-600 cursor-pointer"
+                    />
+                    <span>{showTermsBlock ? 'Include Terms' : 'Hidden'}</span>
+                  </label>
+                </div>
+
+                {showTermsBlock ? (
+                  <div className="space-y-2.5">
+                    {/* Terms Heading & Presets */}
+                    <div className="space-y-1.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                          Terms Heading
+                        </label>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {['TERMS:', 'TERMS & CONDITIONS:', 'PAYMENT TERMS:', 'SERVICE AGREEMENT:'].map(
+                            (preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => setTermsHeading(preset)}
+                                className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                                  termsHeading === preset
+                                    ? 'bg-indigo-600 text-white border-indigo-600 font-bold'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {preset}
+                              </button>
+                            )
+                          )}
+                        </div>
+                      </div>
+                      <input
+                        type="text"
+                        value={termsHeading}
+                        onChange={(e) => setTermsHeading(e.target.value)}
+                        placeholder="e.g. TERMS:"
+                        className="w-full h-8 rounded-input border border-border bg-white px-2.5 text-xs font-bold text-txt-primary"
+                      />
+                    </div>
+
+                    {/* Terms Quick Clause Presets */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                        Quick Clause Presets:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTermsHeading('TERMS:');
+                            setTerms(
+                              'Payment is strictly due within 15 business days. Invoices overdue beyond 30 days are subject to a 1.5% monthly late finance assessment.'
+                            );
+                            showToast('Loaded 15-day payment clause');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">15-Day Net Terms</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">Standard 15-day settlement</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTermsHeading('TERMS & CONDITIONS:');
+                            setTerms(
+                              '1. 50% advance deposit is required prior to project kick-off.\n2. Balance 50% due within 7 days of milestone delivery and QA approval.\n3. Taxes and statutory charges are billed as applicable.'
+                            );
+                            showToast('Loaded 50% milestone clause');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">50% Milestone & Delivery</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">50% Advance + 50% on QA</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTermsHeading('SERVICE TERMS & WARRANTY:');
+                            setTerms(
+                              '1. 30 days post-deployment hypercare support is included.\n2. Source code and IP rights transfer fully upon 100% invoice settlement.\n3. Scope changes require a written change order.'
+                            );
+                            showToast('Loaded SLA & Warranty clause');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">SLA & Hypercare Warranty</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">30 days warranty + IP transfer</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTermsHeading('PAYMENT TERMS:');
+                            setTerms(
+                              'Payment is strictly due within 15 business days. Invoices overdue beyond 30 days are subject to a 1.5% monthly late finance assessment and temporary suspension of services until settled.'
+                            );
+                            showToast('Loaded Late Payment clause');
+                          }}
+                          className="text-left p-1.5 rounded border border-slate-200 bg-white hover:bg-indigo-50/50 hover:border-indigo-300 text-[10px] text-slate-700 transition-colors cursor-pointer"
+                        >
+                          <span className="font-bold text-indigo-700 block">Late Finance Assessment</span>
+                          <span className="text-slate-500 text-[9px] line-clamp-1">1.5% interest on overdue</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Terms Content Textarea */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                          Terms & Conditions Content
+                        </label>
+                        <span className="text-[10px] text-txt-muted">Multiline formatted text</span>
+                      </div>
+                      <textarea
+                        rows={3}
+                        value={terms}
+                        onChange={(e) => setTerms(e.target.value)}
+                        placeholder="Enter terms and conditions, payment terms, clauses..."
+                        className="w-full rounded-input border border-border bg-white p-2.5 text-xs text-txt-primary leading-relaxed"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic">Terms section is hidden on invoice report.</p>
+                )}
+              </div>
+            </div>
+          </details>
+
+          {/* Card 8: Team & Authorized Signatory Control */}
+          <details open className="group rounded-card border border-border bg-white shadow-xs overflow-hidden">
+            <summary className="flex items-center justify-between p-3.5 bg-slate-50 border-b border-border font-bold text-xs text-txt-primary cursor-pointer hover:bg-slate-100 transition-colors list-none">
+              <div className="flex items-center gap-2">
+                <Users className="h-4 w-4 text-indigo-600" />
+                <span>Team & Authorized Signatory</span>
+              </div>
+              <span className="text-[10px] text-txt-muted group-open:rotate-180 transition-transform">▼</span>
+            </summary>
+            <div className="p-3.5 space-y-3 text-xs">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <label className="text-[11px] font-bold text-txt-primary flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showSignatureBlock}
+                    onChange={(e) => setShowSignatureBlock(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-600"
+                  />
+                  <span>Include Team & Signatory Section on Invoice</span>
+                </label>
+                {showSignatureBlock ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowSignatureBlock(false)}
+                    className="text-[10px] text-rose-500 hover:text-rose-700 font-semibold cursor-pointer"
+                  >
+                    Hide Section
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-slate-400 font-medium italic">Hidden in report</span>
+                )}
+              </div>
+
+              {!showSignatureBlock ? (
+                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 text-center space-y-1.5">
+                  <p className="text-xs text-slate-500">
+                    Team & Signatory block is currently <strong className="text-slate-700">hidden</strong> on the invoice report and printout.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowSignatureBlock(true)}
+                    className="text-xs text-indigo-600 font-bold hover:underline cursor-pointer"
+                  >
+                    Click to show Team & Signatory
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Quick Select from CRM Team Members */}
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold text-txt-secondary flex items-center justify-between">
+                      <span>Quick Select from CRM Team:</span>
+                      <span className="text-[10px] text-indigo-600 font-medium">Auto-fills signatory</span>
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val) return;
+                        if (val === '__me' && user) {
+                          setSignature((s) => ({
+                            ...s,
+                            name: user.name || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'Digitechzo Director',
+                            role: user.role || 'Managing Director',
+                          }));
+                          showToast(`Signatory set to current user: ${user.name}`);
+                          return;
+                        }
+                        if (val === '__default_director') {
+                          setSignature((s) => ({
+                            ...s,
+                            name: 'Digitechzo Director',
+                            role: 'Managing Director',
+                          }));
+                          showToast('Signatory set to Managing Director');
+                          return;
+                        }
+                        if (val === '__finance') {
+                          setSignature((s) => ({
+                            ...s,
+                            name: 'Finance & Billing Team',
+                            role: 'Head of Accounts',
+                          }));
+                          showToast('Signatory set to Head of Accounts');
+                          return;
+                        }
+                        const found = teamUsers.find((u: any) => String(u.id) === val);
+                        if (found) {
+                          const fullName = found.name || `${found.firstName || ''} ${found.lastName || ''}`.trim() || found.email;
+                          const roleName = found.role?.displayAlias || found.role?.name || found.roleName || 'Team Signatory';
+                          setSignature((s) => ({
+                            ...s,
+                            name: fullName,
+                            role: roleName,
+                          }));
+                          showToast(`Signatory set to: ${fullName}`);
+                        }
+                      }}
+                      defaultValue=""
+                      className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary cursor-pointer"
+                    >
+                      <option value="" disabled>-- Select CRM Team Member or Role --</option>
+                      {user && (
+                        <option value="__me">👤 Current User ({user.name} - {user.role})</option>
+                      )}
+                      <option value="__default_director">👔 Managing Director (Digitechzo Director)</option>
+                      <option value="__finance">💼 Finance & Accounts Lead</option>
+                      {teamUsers.map((member: any) => {
+                        const mName = member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim() || member.email;
+                        const mRole = member.role?.displayAlias || member.role?.name || 'Team Member';
+                        return (
+                          <option key={member.id} value={member.id}>
+                            👥 {mName} ({mRole})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  {/* Manual Inputs for Signatory Name and Role */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">
+                        Authorized Signatory Name
+                      </label>
+                      <input
+                        type="text"
+                        value={signature.name}
+                        onChange={(e) => setSignature({ ...signature, name: e.target.value })}
+                        placeholder="e.g. Digitechzo Director"
+                        className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs font-semibold text-txt-primary"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-txt-secondary block mb-0.5">
+                        Designation / Role
+                      </label>
+                      <input
+                        type="text"
+                        value={signature.role}
+                        onChange={(e) => setSignature({ ...signature, role: e.target.value })}
+                        placeholder="e.g. Managing Director"
+                        className="w-full h-8 rounded-input border border-border bg-white px-2 text-xs text-txt-primary"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Signature Image Upload / Preview in Editor */}
+                  <div>
+                    <label className="text-[11px] font-semibold text-txt-secondary block mb-1">
+                      Signatory Signature Image (Optional)
+                    </label>
+                    {signature.signatureImage ? (
+                      <div className="flex items-center gap-3 p-2 bg-slate-50 border border-slate-200 rounded-md">
+                        <img
+                          src={signature.signatureImage}
+                          alt="Signature"
+                          className="h-9 max-w-[120px] object-contain bg-white border border-slate-200 rounded p-1"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSignature({ ...signature, signatureImage: '' })}
+                          className="text-xs font-bold text-rose-600 hover:text-rose-700 cursor-pointer"
+                        >
+                          Remove Signature
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-btn border border-dashed border-slate-300 hover:border-indigo-600 bg-slate-50 hover:bg-indigo-50/40 text-xs font-semibold text-slate-700 transition-colors cursor-pointer w-fit">
+                        <Upload className="h-3.5 w-3.5 text-slate-500" />
+                        <span>+ Upload Signature Image</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                setSignature((s) => ({ ...s, signatureImage: reader.result as string }));
+                              };
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </details>
         </div>
@@ -3982,11 +4718,77 @@ export const InvoicesPage: React.FC = () => {
               : 'w-full max-w-4xl mx-auto'
           }`}
         >
+          {/* Invoice Document Action Bar (no-print) */}
+          <div className="no-print flex flex-wrap items-center justify-between gap-2.5 p-3 bg-white rounded-2xl border border-slate-200/90 shadow-xs mb-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-[#57B71B] animate-pulse" />
+              <span className="text-xs font-bold text-slate-800 tracking-tight">
+                Tax Invoice Preview <span className="text-slate-400 font-normal">• A4 Print & Export Ready</span>
+              </span>
+              <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                {meta.number || 'DIGI-2026-001'}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={isExportingPdf}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#57B71B] hover:bg-[#49a016] text-white text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50"
+                title="Download direct PDF file"
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                <span>{isExportingPdf ? 'Exporting PDF...' : 'Download PDF'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadImage}
+                disabled={isExportingImage}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                title="Download high-resolution PNG image"
+              >
+                {isExportingImage ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="h-3.5 w-3.5 text-slate-600" />
+                )}
+                <span>Image</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePrint}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer"
+                title="Print Invoice"
+              >
+                <Printer className="h-3.5 w-3.5 text-slate-600" />
+                <span>Print</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStudioViewMode('editor');
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="lg:hidden inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-all cursor-pointer"
+              >
+                ← Editor
+              </button>
+            </div>
+          </div>
+
           {/* THE REAL INVOICE PAPER (Target for Print & PDF) */}
           <div className="overflow-x-auto pb-4 print:!p-0 print:!m-0 print:!overflow-visible">
             <div
               id="invoiceDocument"
-              className="bg-white rounded-2xl border border-slate-200/90 shadow-xl p-6 sm:p-8 min-w-[650px] print:!min-w-0 print:!min-h-0 print:!h-auto print:!p-0 print:!m-0 print:!border-none print:!shadow-none flex flex-col justify-between relative font-sans text-slate-800"
+              className="bg-white rounded-2xl border border-slate-200/90 shadow-xl p-5 sm:p-8 w-full max-w-full min-w-0 print:!min-w-0 print:!min-h-0 print:!h-auto print:!p-0 print:!m-0 print:!border-none print:!shadow-none flex flex-col justify-between relative font-sans text-slate-800"
             >
               {/* Draft Watermark Badge */}
               {meta.status === 'DRAFT' && (
@@ -3998,60 +4800,64 @@ export const InvoicesPage: React.FC = () => {
               )}
 
               {/* 1. Header: Brand Info & Invoice Title */}
-              <div className="invoice-header flex flex-col sm:flex-row items-start justify-between gap-5 pb-5 border-b border-slate-200/80 relative">
-                <div className="flex items-start gap-4">
+              <div className="invoice-header grid grid-cols-12 gap-4 items-start pb-2 relative">
+                {/* Left (7 Cols): Brand & Sender Profile */}
+                <div className="col-span-12 sm:col-span-7 invoice-header-left flex items-start gap-3.5 min-w-0 pr-2">
                   {sender.logo ? (
                     <img
                       src={sender.logo}
                       alt={sender.name}
                       style={{ height: `${sender.logoHeight || 48}px` }}
-                      className="max-w-[200px] object-contain transition-all rounded-md"
+                      className="max-w-[130px] object-contain transition-all rounded-md shrink-0"
                     />
                   ) : (
-                    <div className="h-12 w-12 rounded-xl bg-[#57B71B] flex items-center justify-center text-white font-black text-2xl shadow-xs shrink-0">
-                      {(sender.name || 'D').charAt(0)}
-                    </div>
+                    <img
+                      src="/assets/images/logo.png"
+                      alt={sender.name || 'Digitechzo'}
+                      style={{ height: `${sender.logoHeight || 48}px` }}
+                      className="max-w-[130px] object-contain transition-all rounded-md shrink-0"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
                   )}
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900 tracking-tight leading-snug">
+                  <div className="min-w-0 flex-1">
+                    <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight leading-tight truncate">
                       {sender.name || 'Digitechzo'}
                     </h2>
-                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed max-w-sm">{sender.address}</p>
-                    <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                      {sender.email} <span className="text-slate-300">•</span> {sender.phone}
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed font-normal break-words">
+                      {sender.address || 'Digitechzo Tech Solutions, Suite 200, IT Park, Chennai, TN 600001'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5 font-normal break-words">
+                      {sender.email || 'billing@digitechzo.com'} <span className="text-slate-400 select-none">•</span> {sender.phone || '+91 98765 43210'}
                     </p>
                     {sender.taxId && (
-                      <p className="text-[11px] font-bold text-slate-800 mt-1.5 inline-flex items-center gap-1.5 px-3 py-0.5 rounded-md bg-slate-50 border border-slate-200">
-                        <span className="text-slate-400 uppercase font-bold text-[9px] tracking-wider">TAX ID / GSTIN:</span> {sender.taxId}
-                      </p>
+                      <div className="mt-1">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200/80">
+                          GST/Tax ID: <strong className="ml-1 text-slate-900">{sender.taxId}</strong>
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
 
-                <div className="text-left sm:text-right shrink-0">
-                  <div className="inline-block sm:text-right">
-                    <span className="text-[10.5px] font-black uppercase tracking-widest text-[#57B71B] block sm:text-right">
-                      OFFICIAL STATEMENT
-                    </span>
-                    <h1
-                      className="text-3xl font-black tracking-tight uppercase"
-                      style={{ color: activeTheme?.primary || '#57B71B' }}
-                    >
-                      TAX INVOICE
-                    </h1>
-                  </div>
-                  <div className="mt-2.5 flex items-center sm:justify-end">
+                {/* Right (5 Cols): Tax Invoice Heading & UNPAID Badge */}
+                <div className="col-span-12 sm:col-span-5 invoice-header-right flex flex-col items-start sm:items-end justify-start min-w-0 text-left sm:text-right">
+                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-indigo-600 uppercase">
+                    TAX INVOICE
+                  </h1>
+                  <div className="mt-2 flex items-center sm:justify-end">
                     <span
-                      className={`inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-extrabold uppercase tracking-wider ${
                         meta.status === 'PAID'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          ? 'border-emerald-300 text-emerald-700 bg-emerald-50 shadow-2xs'
                           : meta.status === 'PARTIALLY_PAID'
-                          ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                          ? 'border-amber-300 text-amber-700 bg-amber-50 shadow-2xs'
                           : meta.status === 'DRAFT'
-                          ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                          ? 'border-slate-300 text-slate-600 bg-slate-50'
                           : meta.status === 'CANCELLED'
-                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                          : 'bg-rose-50 text-rose-700 border border-rose-200'
+                          ? 'border-purple-300 text-purple-700 bg-purple-50 shadow-2xs'
+                          : 'border-rose-300 text-rose-600 bg-rose-50 shadow-2xs'
                       }`}
                     >
                       <span
@@ -4067,112 +4873,91 @@ export const InvoicesPage: React.FC = () => {
                             : 'bg-rose-500'
                         }`}
                       />
-                      {meta.status.replace('_', ' ')}
+                      {meta.status || 'UNPAID'}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* 2. Metadata Grid: Bill To (Left) & Invoice Meta Card (Right) */}
-              <div className="invoice-meta-grid grid grid-cols-12 gap-4 py-3 border-b border-slate-100 items-stretch">
-                {/* Client Profile Card */}
-                <div className="col-span-7 invoice-meta-left invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between">
+              {/* Accent Divider Line: Brand gradient */}
+              <div className="h-[2.5px] bg-gradient-to-r from-[#57B71B] via-emerald-400 to-indigo-600 rounded-full my-3.5" />
+
+              {/* 2. Metadata Grid: Billed To (Left 7 Cols) & Invoice Details Box (Right 5 Cols) */}
+              <div className="invoice-meta-grid grid grid-cols-12 gap-5 py-2 items-start">
+                {/* Left: Client Profile */}
+                <div className="col-span-12 sm:col-span-7 invoice-meta-left flex flex-col justify-between py-1">
                   <div>
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Billed Recipient
-                      </span>
-                    </div>
-                    <h3 className="text-base font-extrabold text-slate-900 tracking-tight">
-                      {client.name || 'Client Company Name'}
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      BILLED TO (CLIENT)
+                    </span>
+                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 tracking-tight">
+                      {client.name || 'Vortex Global Tech Solutions'}
                     </h3>
                     {client.contact && (
-                      <p className="text-xs text-slate-700 mt-1 font-semibold">Attn: {client.contact}</p>
+                      <p className="text-xs text-slate-600 mt-1 font-medium">
+                        Attn: {client.contact}
+                      </p>
                     )}
                     {client.address && (
-                      <p className="text-xs text-slate-500 mt-1 leading-relaxed">{client.address}</p>
+                      <p className="text-xs text-slate-500 mt-0.5 leading-relaxed font-normal">{client.address}</p>
                     )}
-                  </div>
-                  <div className="pt-2.5 mt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-3 text-xs text-slate-600 font-medium">
-                    {client.email && (
-                      <span className="flex items-center gap-1">
-                        <span className="text-slate-400">Email:</span> {client.email}
-                      </span>
-                    )}
-                    {client.phone && (
-                      <span className="flex items-center gap-1">
-                        <span className="text-slate-400">Phone:</span> {client.phone}
-                      </span>
+                    {(client.email || client.phone) && (
+                      <p className="text-xs text-slate-500 mt-1 font-normal">
+                        {client.email} {client.email && client.phone && <span className="text-slate-400 select-none">•</span>} {client.phone}
+                      </p>
                     )}
                   </div>
                 </div>
 
-                {/* Right Invoice Details Badge Card */}
-                <div className="col-span-5 invoice-meta-right invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between overflow-hidden relative">
-                  <div>
-                    <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        Invoice Details
-                      </span>
-                      <span className="text-xs font-semibold text-slate-400">₹</span>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 font-medium text-[11px]">Invoice Number:</span>
-                        <span className="font-extrabold text-slate-900 text-xs tracking-tight">{meta.number}</span>
-                      </div>
-                      {meta.poNumber && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-slate-500 font-medium text-[11px]">P.O. / Ref #:</span>
-                          <span className="font-semibold text-slate-800">{meta.poNumber}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-500 font-medium text-[11px]">Invoice Date:</span>
-                        <span className="font-semibold text-slate-800 font-tabular">{formatDate(meta.date)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-500">
-                        <span>Payment Terms:</span>
-                        <span className="font-semibold text-slate-700">
-                          {meta.paymentTermsDays === '0'
-                            ? 'Due on Receipt'
-                            : meta.paymentTermsDays === 'custom'
-                            ? 'Custom Terms'
-                            : `Net ${meta.paymentTermsDays} Days`}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-500">
-                        <span>Issued By:</span>
-                        <span className="font-semibold text-slate-700">{meta.issuedBy || 'DigiTechzo Administrator'}</span>
-                      </div>
-                    </div>
+                {/* Right: Invoice Details Box */}
+                <div className="col-span-12 sm:col-span-5 invoice-meta-right border border-slate-200/90 rounded-xl p-3.5 bg-white text-xs shadow-2xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">INVOICE #</span>
+                    <span className="font-extrabold text-indigo-600 text-xs tracking-tight">{meta.number || 'DIGI-2026-001'}</span>
                   </div>
-
-                  <div className="mt-2.5 pt-2 border-t border-rose-100 bg-rose-50/80 -mx-4.5 -mb-4.5 px-4.5 py-2.5 rounded-b-xl flex items-center justify-between">
-                    <span className="text-rose-900 font-extrabold text-[11px] uppercase tracking-wider">
-                      Payment Due Date:
+                  {meta.poNumber && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">P.O. / REF #:</span>
+                      <span className="font-bold text-slate-800 text-xs">{meta.poNumber}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">INVOICE DATE:</span>
+                    <span className="font-bold text-slate-800 text-xs font-tabular">{formatDate(meta.date)}</span>
+                  </div>
+                  <div className="flex items-center justify-between bg-rose-50 border-l-2 border-rose-500 px-2 py-1 rounded">
+                    <span className="text-[10px] font-extrabold text-rose-700 uppercase tracking-wider">PAYMENT DUE:</span>
+                    <span className="font-extrabold text-rose-600 text-xs font-tabular">{formatDate(meta.dueDate)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">TERMS:</span>
+                    <span className="text-xs text-slate-600 font-medium">
+                      {meta.paymentTermsDays === '0'
+                        ? 'Due on Receipt'
+                        : meta.paymentTermsDays === 'custom'
+                        ? 'Custom Terms'
+                        : `Net ${meta.paymentTermsDays || 15} Days`}
                     </span>
-                    <span className="font-black text-rose-600 font-tabular text-xs">{formatDate(meta.dueDate)}</span>
                   </div>
                 </div>
               </div>
 
               {/* 3. Items Table */}
-              <div className="invoice-table-section py-2">
-                <table className="w-full text-left border-collapse text-xs table-auto">
+              <div className="invoice-table-section py-2 overflow-x-auto print:!overflow-visible">
+                <table className="w-full text-left border-collapse text-xs table-auto min-w-[500px] sm:min-w-0">
                   <thead>
-                    <tr className="bg-slate-900 text-white font-extrabold text-[10.5px] uppercase tracking-wider">
-                      <th className="py-2.5 px-3.5 rounded-l w-10 text-center whitespace-nowrap">#</th>
-                      <th className="py-2.5 px-3.5 whitespace-nowrap">Description & Service Details</th>
+                    <tr className="border-t border-b border-slate-200 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+                      <th className="py-2.5 px-3 w-10 text-center whitespace-nowrap">#</th>
+                      <th className="py-2.5 px-3 whitespace-nowrap">DESCRIPTION & ITEM DETAILS</th>
                       {enableQtyColumn && (
-                        <th className="py-2.5 px-2.5 text-center whitespace-nowrap w-14">Qty</th>
+                        <th className="py-2.5 px-3 text-center whitespace-nowrap w-14">QTY</th>
                       )}
                       {customColumns
                         .filter((c) => c.showInPreview)
                         .map((col) => (
                           <th
                             key={col.id}
-                            className={`py-2.5 px-3 whitespace-nowrap ${
+                            className={`py-2.5 px-3 whitespace-nowrap uppercase ${
                               col.type === 'number' || col.type === 'currency' ? 'text-right' : 'text-left'
                             }`}
                           >
@@ -4180,42 +4965,38 @@ export const InvoicesPage: React.FC = () => {
                           </th>
                         ))}
                       {enablePriceColumn && (
-                        <th
-                          className={`py-2.5 px-3.5 text-right whitespace-nowrap min-w-[110px] ${
-                            !enableAdvanceColumn ? 'rounded-r' : ''
-                          }`}
-                        >
-                          Full Amount
-                        </th>
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap min-w-[95px]">FINAL AMOUNT</th>
                       )}
-                      {enableAdvanceColumn && (
-                        <th className="py-2.5 px-3.5 rounded-r text-right whitespace-nowrap min-w-[130px]">
-                          Advanced Amount
-                        </th>
-                      )}
+                      {enableAdvanceColumn ? (
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap min-w-[110px]">ADVANCED AMOUNT</th>
+                      ) : !enablePriceColumn ? (
+                        <th className="py-2.5 px-3 text-right whitespace-nowrap min-w-[95px]">FINAL AMOUNT</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {items.map((item, idx) => {
                       const lineAmount = (item.quantity || 0) * (item.price || 0);
-                      const itemAdvance = typeof item.advanceAmount === 'number'
-                        ? item.advanceAmount
-                        : (advancePercent > 0 ? Math.round((lineAmount * advancePercent) / 100) : 0);
+                      const itemAdvance =
+                        typeof item.advanceAmount === 'number'
+                          ? item.advanceAmount
+                          : advancePercent > 0
+                          ? (lineAmount * advancePercent) / 100
+                          : 0;
                       return (
-                        <tr key={item.id} className="hover:bg-slate-50/50 group">
-                          <td className="py-3 px-3.5 text-center text-slate-400 font-medium text-xs align-top">{idx + 1}</td>
-                          <td className="py-3 px-3.5 align-top">
+                        <tr key={item.id} className="hover:bg-slate-50/50">
+                          <td className="py-3 px-3 text-center text-slate-500 font-medium text-xs align-top">{idx + 1}</td>
+                          <td className="py-3 px-3 align-top">
                             <div className="font-extrabold text-slate-900 text-xs leading-snug break-words">{item.description}</div>
                             {item.subdesc && (
-                              <div className="text-[11px] text-slate-500 mt-1 leading-relaxed break-words">{item.subdesc}</div>
+                              <div className="text-[11px] text-slate-500 mt-0.5 leading-relaxed break-words">{item.subdesc}</div>
                             )}
                           </td>
                           {enableQtyColumn && (
-                            <td className="py-3 px-2.5 text-center font-bold text-slate-800 text-xs align-top whitespace-nowrap">
+                            <td className="py-3 px-3 text-center text-slate-700 font-medium text-xs align-top whitespace-nowrap">
                               {item.quantity}
                             </td>
                           )}
-
                           {customColumns
                             .filter((c) => c.showInPreview)
                             .map((col) => {
@@ -4237,359 +5018,416 @@ export const InvoicesPage: React.FC = () => {
                                 </td>
                               );
                             })}
-
                           {enablePriceColumn && (
-                            <td className="py-3 px-3.5 text-right font-black text-slate-900 text-xs align-top whitespace-nowrap font-tabular">
+                            <td className="py-3 px-3 text-right font-bold text-slate-900 text-xs align-top whitespace-nowrap font-tabular">
                               {formatCurrency(lineAmount, meta.currency)}
                             </td>
                           )}
-                          {enableAdvanceColumn && (
-                            <td className="py-3 px-3.5 text-right font-black text-[#57B71B] text-xs align-top whitespace-nowrap font-tabular">
+                          {enableAdvanceColumn ? (
+                            <td className="py-3 px-3 text-right font-bold text-emerald-600 text-xs align-top whitespace-nowrap font-tabular">
                               {formatCurrency(itemAdvance, meta.currency)}
                             </td>
-                          )}
+                          ) : !enablePriceColumn ? (
+                            <td className="py-3 px-3 text-right font-bold text-slate-900 text-xs align-top whitespace-nowrap font-tabular">
+                              {formatCurrency(lineAmount, meta.currency)}
+                            </td>
+                          ) : null}
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
-
-                {/* Quick Add Row shortcut directly below table (hidden on print) */}
-                <div className="no-print mt-2 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={handleAddItem}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-btn border border-dashed border-[#57B71B] bg-emerald-50/60 hover:bg-emerald-100/80 text-[#57B71B] text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                  >
-                    <Plus className="h-3 w-3" /> + Add Another Item / Service Row
-                  </button>
-                  <span className="text-[11px] text-slate-400 font-medium">
-                    {items.length} {items.length === 1 ? 'service item' : 'service items'}
-                  </span>
-                </div>
+                <div className="border-b border-slate-200 mt-0.5" />
               </div>
 
-              {/* 4. Payment Details (Left) & Financial Summary (Right) - SIDE BY SIDE */}
-              <div className="invoice-payment-grid grid grid-cols-12 gap-4 py-2 border-t border-slate-100 items-stretch">
-                {/* Left (7 Cols): Payment Instructions */}
-                <div className="col-span-7 invoice-payment-left invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full space-y-2.5">
-                  <div className="flex items-center justify-between pb-1 border-b border-slate-100">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                      PAYMENT INSTRUCTIONS
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 flex-1 flex flex-col justify-center">
-                    {/* Bank Transfer Block */}
-                    {payment.enableBank && (
-                      <div className="invoice-payment-block p-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 text-xs space-y-1">
-                        <div className="text-[10px] font-black uppercase text-slate-700 tracking-wider mb-0.5">
-                          BANK TRANSFER DETAILS
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] leading-tight">
-                          <div>
-                            <span className="text-slate-400">Bank:</span>{' '}
-                            <strong className="text-slate-800">{payment.bank.bankName || 'HDFC Corporate Banking'}</strong>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Account:</span>{' '}
-                            <strong className="text-slate-800">{payment.bank.accountName || 'Digitechzo Media & Technologies Pvt Ltd'}</strong>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">A/C No:</span>{' '}
-                            <strong className="text-slate-900 font-bold tracking-normal">{payment.bank.accountNumber || '50200098765432'}</strong>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">IFSC/SWIFT:</span>{' '}
-                            <strong className="text-slate-900 font-bold tracking-normal">{payment.bank.ifscSwift || 'HDFC0001234'}</strong>
-                          </div>
-                          <div className="col-span-2">
-                            <span className="text-slate-400">Branch:</span>{' '}
-                            <span className="text-slate-600">{payment.bank.branch || 'IT Park Phase 2, Chennai'}</span>
-                          </div>
-                        </div>
+              {/* 4. Payment Details & Financial Summary */}
+              <div className="invoice-payment-grid grid grid-cols-12 gap-5 py-3 items-stretch border-t border-slate-100">
+                {/* Standalone Bank QR Code Card: Displayed OUTSIDE the payment details box on the left ONLY when Bank Transfer is selected and QR is not removed */}
+                {activePaymentMethod === 'bank' && payment.showBankQr !== false && (
+                  <div className="col-span-12 sm:col-span-3 invoice-bank-qr-outside bg-white border border-slate-200/90 rounded-xl p-3 shadow-2xs flex flex-col items-center justify-center text-center self-stretch">
+                    <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1 mb-2">
+                      <QrCode className="h-3.5 w-3.5 text-indigo-600" />
+                      <span>SCAN & PAY</span>
+                    </div>
+                    {activePaymentQrUrl ? (
+                      <img
+                        src={activePaymentQrUrl}
+                        alt="Bank Transfer QR Code"
+                        className="h-28 w-28 object-contain"
+                      />
+                    ) : (
+                      <div className="h-28 w-28 flex items-center justify-center text-slate-400 bg-slate-50 rounded">
+                        <Landmark className="h-8 w-8 text-slate-300" />
                       </div>
                     )}
+                    <span className="text-[10px] text-slate-500 font-medium mt-2 flex items-center gap-1 text-center whitespace-nowrap">
+                      <QrCode className="h-3 w-3 text-slate-400" /> Scan to Pay Bank Account
+                    </span>
+                  </div>
+                )}
 
-                    {/* UPI Block */}
-                    {payment.enableUpi && (
-                      <div className="invoice-payment-block p-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 text-xs flex items-center justify-between gap-3">
-                        {upiQrUrl && (
-                          <div className="shrink-0 text-center">
-                            <img
-                              src={upiQrUrl}
-                              alt="UPI QR"
-                              className="h-10 w-10 object-contain mx-auto border border-slate-200 rounded p-0.5 bg-white"
-                            />
-                            <span className="text-[8px] text-slate-400 font-bold block">UPI Scan</span>
-                          </div>
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
-                            UPI PAYMENT (GPAY, PHONEPE, PAYTM, BHIM)
-                          </div>
-                          <div className="flex items-center gap-3 text-[11px] mt-1">
-                            <span>
-                              <span className="text-slate-400">UPI ID:</span>{' '}
-                              <strong className="font-extrabold text-slate-900 tracking-normal">
-                                {payment.upi.upiId || 'digitechzo@okicici'}
-                              </strong>
-                            </span>
-                            <span>
-                              <span className="text-slate-400">Payee:</span>{' '}
-                              <strong className="text-slate-800">{payment.upi.payeeName || 'Digitechzo'}</strong>
-                            </span>
-                          </div>
-                        </div>
-                        <div className="no-print">
+                {/* Left: Payment Details Card */}
+                <div
+                  className={`col-span-12 ${
+                    activePaymentMethod === 'bank' && payment.showBankQr !== false ? 'sm:col-span-5' : 'md:col-span-7'
+                  } invoice-payment-left bg-[#F8FAFC] border border-indigo-100/90 rounded-xl p-3.5 sm:p-4 shadow-2xs flex flex-col justify-between`}
+                >
+                  {/* Header & The 3 Interactive Clickable Tabs */}
+                  <div>
+                    <div className="flex items-center justify-between gap-1.5 mb-2">
+                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5">
+                        <CreditCard className="h-3.5 w-3.5 text-indigo-600" />
+                        <span>PAYMENT DETAILS</span>
+                      </div>
+                      <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50 border border-indigo-200/90 px-2 py-0.5 rounded-md flex items-center gap-1">
+                        {activePaymentMethod === 'bank' && <Building2 className="h-3 w-3" />}
+                        {activePaymentMethod === 'upi' && <QrCode className="h-3 w-3" />}
+                        {activePaymentMethod === 'crypto' && <Wallet className="h-3 w-3" />}
+                        <span>
+                          {activePaymentMethod === 'bank'
+                            ? 'Bank Transfer'
+                            : activePaymentMethod === 'upi'
+                            ? 'UPI Pay'
+                            : 'Crypto Wallet'}
+                        </span>
+                      </span>
+                    </div>
+
+                    {/* The 3 Interactive Clickable Tabs to easily switch payment method */}
+                    <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-0.5 no-print">
+                      <button
+                        type="button"
+                        onClick={() => handlePaymentTabChange('bank')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                          activePaymentMethod === 'bank'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Building2 className="h-3 w-3" />
+                        <span>Bank Transfer</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handlePaymentTabChange('upi')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                          activePaymentMethod === 'upi'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <QrCode className="h-3 w-3" />
+                        <span>UPI Pay / QR</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handlePaymentTabChange('crypto')}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                          activePaymentMethod === 'crypto'
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Wallet className="h-3 w-3" />
+                        <span>Crypto Wallet</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Horizontal Divider below tabs */}
+                  <div className="border-b border-slate-200/70 my-3" />
+
+                  {/* Selected Method Details */}
+                  {activePaymentMethod === 'bank' && (
+                    <div className="space-y-1.5 py-0.5 text-xs">
+                      <div>
+                        <span className="text-[11px] text-slate-500 font-medium">Bank Name: </span>
+                        <strong className="text-slate-900 font-extrabold">{payment.bank.bankName || 'HDFC Bank Ltd'}</strong>
+                      </div>
+
+                      <div>
+                        <span className="text-[11px] text-slate-500 font-medium">Account Name: </span>
+                        <strong className="text-slate-900 font-extrabold">{payment.bank.accountName || sender.name || 'Digitechzo'}</strong>
+                      </div>
+
+                      <div>
+                        <span className="text-[11px] text-slate-500 font-medium">Account #: </span>
+                        <div className="inline-flex items-center gap-1.5 mt-0.5">
+                          <strong className="text-slate-950 font-black font-mono tracking-tight text-xs sm:text-sm">
+                            {payment.bank.accountNumber || '50200098765432'}
+                          </strong>
                           <button
                             type="button"
-                            onClick={() => handleCopy(payment.upi.upiId || 'digitechzo@okicici', 'upi')}
-                            className="h-6 w-6 rounded bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer shadow-2xs"
-                            title="Copy UPI ID"
+                            onClick={() => handleCopy(payment.bank.accountNumber || '50200098765432', 'bankAccount')}
+                            className="no-print h-5 px-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200/80 inline-flex items-center justify-center cursor-pointer transition-colors shadow-2xs shrink-0"
+                            title="Copy Account Number"
                           >
-                            {copiedKey === 'upi' ? (
+                            {copiedKey === 'bankAccount' ? (
                               <Check className="h-3 w-3 text-emerald-600" />
                             ) : (
-                              <Copy className="h-3 w-3 text-slate-500" />
+                              <Copy className="h-3 w-3 text-slate-600" />
                             )}
                           </button>
                         </div>
                       </div>
-                    )}
 
-                    {/* Crypto Wallet Block */}
-                    {payment.enableCrypto && (
-                      <div className="invoice-payment-block p-2.5 rounded-lg border border-slate-200/90 bg-slate-50/50 text-xs flex items-center gap-3">
-                        {cryptoQrUrl && (
-                          <div className="shrink-0 text-center">
-                            <img
-                              src={cryptoQrUrl}
-                              alt="Crypto QR"
-                              className="h-10 w-10 object-contain mx-auto border border-slate-200 rounded p-0.5 bg-white"
-                            />
-                            <span className="text-[8px] text-slate-400 font-bold block">Crypto Scan</span>
+                      <div>
+                        <span className="text-[11px] text-slate-500 font-medium">IFSC / SWIFT: </span>
+                        <div className="inline-flex items-center gap-1.5 mt-0.5">
+                          <strong className="text-slate-950 font-black font-mono tracking-tight text-xs sm:text-sm">
+                            {payment.bank.ifscSwift || 'HDFC0005678 / SWIFT: HDFCINBB'}
+                          </strong>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(payment.bank.ifscSwift || 'HDFC0005678 / SWIFT: HDFCINBB', 'bankIfsc')}
+                            className="no-print h-5 px-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200/80 inline-flex items-center justify-center cursor-pointer transition-colors shadow-2xs shrink-0"
+                            title="Copy IFSC / SWIFT Code"
+                          >
+                            {copiedKey === 'bankIfsc' ? (
+                              <Check className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-slate-600" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <span className="text-[11px] text-slate-500 font-medium">Branch: </span>
+                        <span className="text-slate-800 font-medium">
+                          {payment.bank.branch || 'Anna Salai Branch, Chennai'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {activePaymentMethod === 'upi' && (
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-xs">
+                      {/* Left: White Card with QR Code and Subtitle */}
+                      <div className="bg-white border border-slate-200/90 rounded-xl p-2.5 shadow-2xs flex flex-col items-center justify-center shrink-0 w-32 sm:w-36">
+                        {activePaymentQrUrl ? (
+                          <img
+                            src={activePaymentQrUrl}
+                            alt="UPI QR Code"
+                            className="h-24 w-24 sm:h-28 sm:w-28 object-contain"
+                          />
+                        ) : (
+                          <div className="h-24 w-24 sm:h-28 sm:w-28 flex items-center justify-center text-slate-400 bg-slate-50 rounded">
+                            <QrCode className="h-8 w-8 text-slate-300" />
                           </div>
                         )}
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[10px] font-black uppercase text-slate-700 tracking-wider">
-                            CRYPTO WALLET PAYMENT
-                          </div>
-                          <div className="text-[11px] text-slate-700 mt-0.5 leading-tight">
-                            <span className="text-slate-400">Token/Network:</span>{' '}
-                            <strong className="text-slate-900">
-                              {payment.crypto.coin} ({payment.crypto.network})
-                            </strong>
-                          </div>
-                          <div className="text-[11px] text-slate-700 mt-1 flex items-center gap-1.5 truncate">
-                            <span className="text-slate-400">Address:</span>{' '}
-                            <span className="text-xs font-bold text-slate-900 tracking-normal truncate">
-                              {payment.crypto.address}
-                            </span>
-                            <div className="no-print shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(payment.crypto.address, 'crypto')}
-                                className="h-5 w-5 rounded bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center cursor-pointer shadow-2xs"
-                                title="Copy Address"
-                              >
-                                {copiedKey === 'crypto' ? (
-                                  <Check className="h-2.5 w-2.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="h-2.5 w-2.5 text-slate-500" />
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right (5 Cols): Financial Summary */}
-                <div className="col-span-5 invoice-payment-right invoice-card invoice-totals-block bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full">
-                  <div>
-                    <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-slate-100">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        FINANCIAL SUMMARY
-                      </span>
-                      <span className="text-xs font-semibold text-slate-400">₹</span>
-                    </div>
-
-                    <div className="space-y-2 text-xs py-1">
-                      <div className="flex justify-between items-center text-slate-600">
-                        <span className="font-medium text-xs">Subtotal</span>
-                        <span className="font-tabular font-bold text-slate-900 text-xs">{formatCurrency(subtotal, meta.currency)}</span>
-                      </div>
-
-                      {discountRate > 0 && (
-                        <div className="flex justify-between items-center text-emerald-700 font-semibold px-2 py-0.5 -mx-2 rounded bg-emerald-50/50">
-                          <span className="text-xs">Discount ({discountRate}%)</span>
-                          <span className="font-tabular font-bold text-xs">-{formatCurrency(discountAmount, meta.currency)}</span>
-                        </div>
-                      )}
-
-                      {taxRate > 0 && (
-                        <div className="flex justify-between items-center text-slate-600">
-                          <span className="text-xs">GST / Tax ({taxRate}%)</span>
-                          <span className="font-tabular font-semibold text-slate-800 text-xs">+{formatCurrency(taxAmount, meta.currency)}</span>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between items-center pt-2 border-t border-slate-200 text-xs font-bold text-slate-900">
-                        <span className="font-bold text-xs uppercase tracking-wide">Invoice Total</span>
-                        <span className="font-tabular font-black text-sm text-slate-900">
-                          {formatCurrency(grandTotal, meta.currency)}
+                        <span className="text-[10px] text-slate-500 font-medium mt-1.5 flex items-center gap-1 text-center whitespace-nowrap">
+                          <span>📷</span> Scan with GPay / PhonePe / Paytm
                         </span>
                       </div>
 
-                      {totalAdvance > 0 && (
-                        <div className="flex justify-between items-center text-emerald-700 font-bold px-2 py-0.5 -mx-2 rounded bg-emerald-50/60">
-                          <span className="text-xs">Total Advanced Amount</span>
-                          <span className="font-tabular font-black text-sm text-[#57B71B]">
-                            {formatCurrency(totalAdvance, meta.currency)}
+                      {/* Right: UPI Key Details matching screenshot */}
+                      <div className="flex-1 min-w-0 space-y-2 py-0.5 text-xs">
+                        <div>
+                          <span className="text-[11px] text-slate-500 font-medium block">UPI ID / VPA:</span>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <strong className="text-slate-900 font-extrabold text-sm tracking-tight font-mono">
+                              {payment.upi.upiId || 'digitechzo@okicici'}
+                            </strong>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(payment.upi.upiId || 'digitechzo@okicici', 'upi')}
+                              className="no-print h-6 px-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200/80 inline-flex items-center justify-center cursor-pointer transition-colors shadow-2xs"
+                              title="Copy UPI ID"
+                            >
+                              {copiedKey === 'upi' ? (
+                                <Check className="h-3 w-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="h-3 w-3 text-slate-600" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-500 font-medium">Payee Name: </span>
+                          <strong className="text-slate-900 font-bold">{payment.upi.payeeName || sender.name || 'Digitechzo'}</strong>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-500 font-medium">Note: </span>
+                          <span className="text-slate-800 font-medium">
+                            {payment.upi.note || `Payment for Invoice ${meta.number || 'DIGI-2026-001'}`}
                           </span>
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
+                  )}
 
-                  <div className="mt-3 pt-2 -mx-4.5 -mb-4.5 px-4.5 py-3 bg-rose-50/80 border-t border-rose-100 rounded-b-xl flex items-center justify-between font-black text-rose-600 text-xs">
-                    <span className="uppercase tracking-wider">BALANCE DUE</span>
-                    <span className="font-tabular text-sm font-black">{formatCurrency(balanceDue, meta.currency)}</span>
+                  {activePaymentMethod === 'crypto' && (
+                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 text-xs">
+                      {/* Left: White Card with Crypto QR Code */}
+                      <div className="bg-white border border-slate-200/90 rounded-xl p-2.5 shadow-2xs flex flex-col items-center justify-center shrink-0 w-32 sm:w-36">
+                        {activePaymentQrUrl ? (
+                          <img
+                            src={activePaymentQrUrl}
+                            alt="Crypto Wallet QR"
+                            className="h-24 w-24 sm:h-28 sm:w-28 object-contain"
+                          />
+                        ) : (
+                          <div className="h-24 w-24 sm:h-28 sm:w-28 flex items-center justify-center text-slate-400 bg-slate-50 rounded">
+                            <Wallet className="h-8 w-8 text-slate-300" />
+                          </div>
+                        )}
+                        <span className="text-[10px] text-slate-500 font-medium mt-1.5 flex items-center gap-1 text-center whitespace-nowrap">
+                          <QrCode className="h-3 w-3 text-slate-400" /> Scan Wallet Address
+                        </span>
+                      </div>
+
+                      {/* Right: Crypto Details matching screenshot */}
+                      <div className="flex-1 min-w-0 space-y-2 py-0.5 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-500 font-medium">Coin:</span>
+                          <span className="bg-[#EEF2FF] text-[#4F46E5] px-2.5 py-0.5 rounded-full font-bold text-xs border border-indigo-100">
+                            {payment.crypto.coin} ({payment.crypto.network})
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-500 font-medium">Network: </span>
+                          <strong className="text-slate-900 font-extrabold">{payment.crypto.network}</strong>
+                        </div>
+
+                        <div>
+                          <span className="text-slate-500 font-medium block mb-1">Wallet Address:</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-xs font-bold text-slate-900 break-all">
+                              {payment.crypto.address || 'TYDzsYWaWXtHVRMokBSuP2t97711234567'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(payment.crypto.address, 'crypto')}
+                              className="no-print h-6 px-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200/80 inline-flex items-center justify-center cursor-pointer transition-colors shadow-2xs shrink-0"
+                              title="Copy Wallet Address"
+                            >
+                              {copiedKey === 'crypto' ? (
+                                <Check className="h-3 w-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="h-3 w-3 text-slate-600" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Financial Summary */}
+                <div
+                  className={`col-span-12 ${
+                    activePaymentMethod === 'bank' && payment.showBankQr !== false ? 'sm:col-span-4' : 'md:col-span-5'
+                  } invoice-payment-right flex flex-col justify-between py-1`}
+                >
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between items-center text-slate-600">
+                      <span className="font-medium text-xs">Subtotal</span>
+                      <span className="font-tabular font-semibold text-slate-800 text-xs">{formatCurrency(subtotal, meta.currency)}</span>
+                    </div>
+
+                    {discountRate > 0 && (
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span className="font-medium text-xs">Discount ({discountRate}%)</span>
+                        <span className="font-tabular font-semibold text-slate-800 text-xs">-{formatCurrency(discountAmount, meta.currency)}</span>
+                      </div>
+                    )}
+
+                    {taxRate > 0 && (
+                      <div className="flex justify-between items-center text-slate-600">
+                        <span className="font-medium text-xs">Tax ({taxRate}%)</span>
+                        <span className="font-tabular font-semibold text-slate-800 text-xs">+{formatCurrency(taxAmount, meta.currency)}</span>
+                      </div>
+                    )}
+
+                    {totalAdvance > 0 && (
+                      <div className="flex justify-between items-center text-emerald-700 font-semibold">
+                        <span className="text-xs">Advanced Amount Paid</span>
+                        <span className="font-tabular text-xs">-{formatCurrency(totalAdvance, meta.currency)}</span>
+                      </div>
+                    )}
+
+                    <div className="border-t border-slate-200 pt-3 mt-3 flex justify-between items-center bg-indigo-50/60 -mx-1 px-3 py-2.5 rounded-xl border border-indigo-100/90 shadow-2xs">
+                      <div>
+                        <span className="font-extrabold text-xs sm:text-sm text-indigo-700 uppercase tracking-tight block">
+                          Total Amount Due
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-medium">Net Payable Balance</span>
+                      </div>
+                      <span className="font-tabular font-black text-xl sm:text-2xl text-indigo-700 tracking-tight">
+                        {formatCurrency(balanceDue > 0 ? balanceDue : grandTotal, meta.currency)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* 5. Terms & Instructions (Left) & Digital Authorization (Right) - SIDE BY SIDE */}
-              <div className="invoice-terms-grid grid grid-cols-12 gap-4 py-2 border-t border-slate-100 items-stretch">
-                {/* Left: Terms & Instructions */}
-                <div
-                  className={`${
-                    showSignatureBlock ? 'col-span-7 invoice-terms-left' : 'col-span-12 invoice-terms-full'
-                  } invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full`}
-                >
-                  <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-1.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      {notesHeading || 'TERMS & INSTRUCTIONS:'}
-                    </span>
-                    <div className="no-print flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const next = prompt('Edit Terms Heading:', notesHeading);
-                          if (next !== null) setNotesHeading(next);
-                        }}
-                        className="text-[9px] text-slate-400 hover:text-slate-600 font-medium whitespace-nowrap bg-slate-50 hover:bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 cursor-pointer"
-                        title="Edit Heading"
-                      >
-                        ✎ Editable
-                      </button>
-                      {!showSignatureBlock && (
-                        <button
-                          type="button"
-                          onClick={() => setShowSignatureBlock(true)}
-                          className="text-[9px] text-emerald-600 hover:text-emerald-700 font-bold whitespace-nowrap bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 cursor-pointer"
-                        >
-                          + Add Authorization Section
-                        </button>
-                      )}
+              {/* 5. Notes & Terms (Left 7 Cols) & Authorized Signatory (Right 5 Cols) */}
+              <div className="invoice-terms-grid grid grid-cols-12 gap-5 py-3.5 border-t border-slate-100 items-start">
+                {/* Left: Separated Note & Terms */}
+                <div className="col-span-12 sm:col-span-7 invoice-terms-left space-y-2.5">
+                  {/* Note Block */}
+                  {showNotesBlock && notes && (
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5">
+                        <MessageSquare className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                        <span>{notesHeading || 'NOTE:'}</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed font-normal whitespace-pre-line">
+                        {notes}
+                      </p>
                     </div>
-                  </div>
-                  <div className="pt-2.5 flex-1 flex flex-col justify-between">
-                    <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line font-medium">
-                      {notes}
-                    </p>
-                  </div>
+                  )}
+
+                  {/* Terms Block */}
+                  {showTermsBlock && terms && (
+                    <div className="space-y-0.5">
+                      <div className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1.5">
+                        <FileText className="h-3.5 w-3.5 text-indigo-600 shrink-0" />
+                        <span>{termsHeading || 'TERMS:'}</span>
+                      </div>
+                      <p className="text-xs text-slate-600 leading-relaxed font-normal whitespace-pre-line">
+                        {terms}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
-                {/* Right: Digital Authorization Card (when enabled) */}
+                {/* Right: Team / Authorized Signatory */}
                 {showSignatureBlock && (
-                  <div className="col-span-5 invoice-terms-right invoice-card bg-white rounded-xl border border-slate-200/90 p-4.5 flex flex-col justify-between h-full text-right relative">
-                    <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
-                      <div className="no-print">
-                        <button
-                          type="button"
-                          onClick={() => setShowSignatureBlock(false)}
-                          className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-500 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
-                          title="Remove Digital Authorization Section"
-                        >
-                          <Trash2 className="h-3 w-3" /> Remove
-                        </button>
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-auto">
-                        DIGITAL AUTHORIZATION
-                      </span>
-                    </div>
-
-                    <div className="my-auto py-2 flex flex-col items-end">
-                      {signature.signatureImage ? (
-                        <div className="relative group mb-1">
-                          <img
-                            src={signature.signatureImage}
-                            alt="Signature"
-                            className="h-10 max-w-[140px] object-contain"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setSignature({ ...signature, signatureImage: '' })}
-                            className="no-print absolute -top-1 -right-1 h-4 w-4 bg-rose-500 text-white rounded-full flex items-center justify-center text-[9px] shadow cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
-                            title="Remove Signature Image"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-end">
-                          <span className="text-xs font-serif italic text-slate-500 block mb-1">
-                            Authorized Signatory
-                          </span>
-                          <div className="no-print mb-1">
-                            <label className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md cursor-pointer transition-colors">
-                              <Upload className="h-2.5 w-2.5" /> + Add Signature
-                              <input
-                                type="file"
-                                accept="image/*"
-                                onChange={(e) => {
-                                  const file = e.target.files?.[0];
-                                  if (file) {
-                                    const reader = new FileReader();
-                                    reader.onload = () => {
-                                      setSignature((s) => ({ ...s, signatureImage: reader.result as string }));
-                                    };
-                                    reader.readAsDataURL(file);
-                                  }
-                                }}
-                                className="hidden"
-                              />
-                            </label>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Neutral dashed line (no color!) */}
-                      <div className="w-36 border-b border-dashed border-slate-300 mt-1 mb-1.5" />
-
-                      <div>
-                        <h4 className="text-xs font-black text-slate-900 tracking-tight leading-tight">
-                          {signature.name || 'Alexander Vance'}
-                        </h4>
-                        <p className="text-[11px] text-slate-500 font-medium leading-tight">
-                          {signature.role || 'Managing Director'}
-                        </p>
-                        <span className="inline-block text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 mt-1">
-                          ✓ Verified Signatory
-                        </span>
-                      </div>
+                  <div className="col-span-12 sm:col-span-5 invoice-terms-right flex flex-col items-end text-right">
+                    {signature.signatureImage ? (
+                      <img
+                        src={signature.signatureImage}
+                        alt="Signature"
+                        className="h-10 max-w-[140px] object-contain mb-1"
+                      />
+                    ) : (
+                      <div className="w-44 sm:w-52 border-t-2 border-slate-800 mb-1.5" />
+                    )}
+                    <h4 className="text-xs font-bold text-slate-900 tracking-tight leading-tight">
+                      {signature.name || 'Digitechzo Director'}
+                    </h4>
+                    <p className="text-[11px] text-slate-500 font-medium leading-tight">
+                      {signature.role || 'Managing Director'}
+                    </p>
+                    <div className="mt-1 flex items-center gap-1 text-[9px] uppercase tracking-wider font-bold text-[#57B71B] bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/80">
+                      <span>✓</span>
+                      <span>AUTHORIZED SIGNATURE</span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* 6. Footer Text */}
+              {/* 7. Footer Text */}
               {footerText && (
-                <div className="invoice-footer text-center pt-3.5 border-t border-slate-100 text-[10.5px] text-slate-400 font-medium tracking-wide">
+                <div className="invoice-footer text-center pt-3 border-t border-slate-100 text-[10px] text-slate-400 font-medium tracking-wide">
                   {footerText}
                 </div>
               )}
@@ -4597,6 +5435,8 @@ export const InvoicesPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+
 
       {/* ========================================================= */}
       {/* INVOICE HISTORY & DRAFTS MODAL                            */}

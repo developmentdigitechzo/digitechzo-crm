@@ -666,7 +666,7 @@ export const ActivitiesPage: React.FC = () => {
                         </div>
 
                         {/* Right: Timestamp in tabular numerals */}
-                        <div className="text-left sm:text-right shrink-0 pl-9 sm:pl-0">
+                        <div className="text-left sm:text-right shrink-0">
                           <span className="text-[11px] font-semibold text-txt-muted tabular-nums flex items-center gap-1 sm:justify-end">
                             <Clock className="h-3 w-3 shrink-0" />
                             {new Date(act.createdAt).toLocaleTimeString([], {
@@ -679,14 +679,14 @@ export const ActivitiesPage: React.FC = () => {
 
                       {/* Middle: Description / Note Body */}
                       {act.description && (
-                        <div className="mt-2.5 pl-9 text-xs text-txt-secondary leading-relaxed bg-slate-50/60 p-2.5 rounded-btn border border-slate-100">
+                        <div className="mt-2.5 sm:pl-9 pl-0 text-xs text-txt-secondary leading-relaxed bg-slate-50/60 p-2.5 rounded-btn border border-slate-100 break-words">
                           {act.description}
                         </div>
                       )}
 
                       {/* Contextual Call Audio Scrub Bar (for recorded calls) */}
                       {isCall && (
-                        <div className="mt-2.5 pl-9">
+                        <div className="mt-2.5 sm:pl-9 pl-0">
                           <div className="flex items-center gap-2.5 p-2 rounded-btn bg-[#F8FAFC] border border-border max-w-md">
                             <button
                               type="button"
@@ -726,7 +726,7 @@ export const ActivitiesPage: React.FC = () => {
                       )}
 
                       {/* Footer: Author info & Quick prospect link */}
-                      <div className="mt-2.5 pl-9 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-txt-muted">
+                      <div className="mt-2.5 sm:pl-9 pl-0 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-txt-muted">
                         <div className="flex items-center gap-1.5">
                           <Avatar className="h-4 w-4 text-[9px] bg-slate-200 text-txt-primary">
                             <AvatarFallback>

@@ -314,60 +314,114 @@ export const SettingsPage: React.FC = () => {
               </Button>
             </div>
           ) : (
-            <div className="rounded-card border border-border bg-white shadow-card overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-[80px]">Sequence</TableHead>
-                    <TableHead className="w-[200px]">Stage Name</TableHead>
-                    <TableHead className="w-[120px]">Stage Type</TableHead>
-                    <TableHead className="w-[150px] text-right">Target Deals</TableHead>
-                    <TableHead className="w-[160px] text-right">Target Value</TableHead>
-                    <TableHead className="w-[120px] text-right">Active Deals</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {stages.map((stage) => {
-                    const activeDealCount = deals.filter((d: any) => d.stageId === stage.id).length;
+            <>
+              {/* Desktop Table View (≥768px) */}
+              <div className="hidden md:block rounded-card border border-border bg-white shadow-card overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[80px]">Sequence</TableHead>
+                      <TableHead className="w-[200px]">Stage Name</TableHead>
+                      <TableHead className="w-[120px]">Stage Type</TableHead>
+                      <TableHead className="w-[150px] text-right">Target Deals</TableHead>
+                      <TableHead className="w-[160px] text-right">Target Value</TableHead>
+                      <TableHead className="w-[120px] text-right">Active Deals</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {stages.map((stage) => {
+                      const activeDealCount = deals.filter((d: any) => d.stageId === stage.id).length;
 
-                    return (
-                      <TableRow key={stage.id}>
-                        <TableCell className="font-semibold text-xs text-txt-muted tabular-nums">
-                          #{stage.order}
-                        </TableCell>
-                        <TableCell className="font-semibold text-xs text-txt-primary">
-                          {stage.name}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              stage.stageType === 'WON'
-                                ? 'success'
-                                : stage.stageType === 'LOST'
-                                ? 'danger'
-                                : 'neutral'
-                            }
-                          >
-                            {stage.stageType}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium text-xs text-txt-secondary tabular-nums">
-                          {stage.dealCountBenchmark !== undefined ? `${stage.dealCountBenchmark} deals` : '—'}
-                        </TableCell>
-                        <TableCell className="text-right font-semibold text-xs text-txt-primary tabular-nums">
-                          {stage.totalValueBenchmark !== undefined
-                            ? `₹${Number(stage.totalValueBenchmark).toLocaleString('en-IN')}`
-                            : '—'}
-                        </TableCell>
-                        <TableCell className="text-right font-bold text-xs text-txt-primary tabular-nums">
-                          {activeDealCount} {activeDealCount === 1 ? 'deal' : 'deals'}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                      return (
+                        <TableRow key={stage.id}>
+                          <TableCell className="font-semibold text-xs text-txt-muted tabular-nums">
+                            #{stage.order}
+                          </TableCell>
+                          <TableCell className="font-semibold text-xs text-txt-primary">
+                            {stage.name}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                stage.stageType === 'WON'
+                                  ? 'success'
+                                  : stage.stageType === 'LOST'
+                                  ? 'danger'
+                                  : 'neutral'
+                              }
+                            >
+                              {stage.stageType}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-medium text-xs text-txt-secondary tabular-nums">
+                            {stage.dealCountBenchmark !== undefined ? `${stage.dealCountBenchmark} deals` : '—'}
+                          </TableCell>
+                          <TableCell className="text-right font-semibold text-xs text-txt-primary tabular-nums">
+                            {stage.totalValueBenchmark !== undefined
+                              ? `₹${Number(stage.totalValueBenchmark).toLocaleString('en-IN')}`
+                              : '—'}
+                          </TableCell>
+                          <TableCell className="text-right font-bold text-xs text-txt-primary tabular-nums">
+                            {activeDealCount} {activeDealCount === 1 ? 'deal' : 'deals'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Mobile Card View (<768px) */}
+              <div className="md:hidden space-y-2.5">
+                {stages.map((stage) => {
+                  const activeDealCount = deals.filter((d: any) => d.stageId === stage.id).length;
+                  return (
+                    <div key={stage.id} className="rounded-card border border-border bg-white p-3.5 shadow-card space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-xs text-txt-muted tabular-nums">#{stage.order}</span>
+                          <span className="font-bold text-xs text-txt-primary">{stage.name}</span>
+                        </div>
+                        <Badge
+                          variant={
+                            stage.stageType === 'WON'
+                              ? 'success'
+                              : stage.stageType === 'LOST'
+                              ? 'danger'
+                              : 'neutral'
+                          }
+                        >
+                          {stage.stageType}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-border/50 text-center text-xs">
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Target</span>
+                          <span className="font-semibold font-tabular text-txt-secondary">
+                            {stage.dealCountBenchmark !== undefined ? `${stage.dealCountBenchmark}` : '—'}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Benchmark</span>
+                          <span className="font-semibold font-tabular text-txt-primary truncate block">
+                            {stage.totalValueBenchmark !== undefined
+                              ? `₹${Number(stage.totalValueBenchmark).toLocaleString('en-IN')}`
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 p-1.5 rounded-btn">
+                          <span className="text-[10px] text-txt-muted block">Active</span>
+                          <span className="font-bold font-tabular text-[#57B71B]">
+                            {activeDealCount}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </div>
       )}

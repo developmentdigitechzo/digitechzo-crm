@@ -840,7 +840,7 @@ export const ProposalsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-txt-primary">
                   Quoted Amount (INR) <span className="text-red-500">*</span>

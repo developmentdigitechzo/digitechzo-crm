@@ -434,7 +434,7 @@ export const CustomersPage: React.FC = () => {
           subtextVariant="info"
           icon={TrendingUp}
           iconVariant="info"
-          onClick={() => navigate('/in-voice')}
+          onClick={() => navigate('/invoices')}
         />
       </div>
 
@@ -662,20 +662,41 @@ export const CustomersPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 pt-1">
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setSelectedCustomer(customer)}
-                    className="flex-1 h-8 text-xs font-medium cursor-pointer"
+                    className="flex-1 h-8 text-xs font-semibold cursor-pointer"
                   >
-                    <Eye className="h-3.5 w-3.5 mr-1.5" /> View Account 360
+                    <Eye className="h-3.5 w-3.5 mr-1.5" /> 360 View
                   </Button>
+                  {customer.phone && customer.phone !== '—' && (
+                    <a
+                      href={`tel:${customer.phone}`}
+                      className="h-8 px-2.5 rounded-btn border border-emerald-200 bg-emerald-50 text-[#16A34A] hover:bg-emerald-100 flex items-center justify-center transition-colors shrink-0"
+                      title="Call customer"
+                      aria-label="Call customer"
+                    >
+                      <Phone className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                  {customer.contactEmail && customer.contactEmail !== '—' && (
+                    <a
+                      href={`mailto:${customer.contactEmail}`}
+                      className="h-8 px-2.5 rounded-btn border border-blue-200 bg-blue-50 text-[#2563EB] hover:bg-blue-100 flex items-center justify-center transition-colors shrink-0"
+                      title="Email customer"
+                      aria-label="Email customer"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                    </a>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => handleOpenEdit(customer)}
-                    className="h-8 px-2 text-xs font-medium cursor-pointer"
+                    className="h-8 px-2.5 text-xs font-medium cursor-pointer shrink-0"
+                    title="Edit Customer"
                   >
                     <Edit2 className="h-3.5 w-3.5" />
                   </Button>
@@ -897,7 +918,7 @@ export const CustomersPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
                   Contact Person *
@@ -923,7 +944,7 @@ export const CustomersPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold text-txt-secondary uppercase tracking-wider">
                   Contact Email *

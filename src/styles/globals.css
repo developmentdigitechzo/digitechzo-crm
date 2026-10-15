@@ -98,6 +98,14 @@
   background: #94A3B8;
 }
 
+/* Base styling for invoice cards on-screen */
+.invoice-card {
+  padding: 14px 16px;
+  background-color: #ffffff;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+}
+
 /* ========================================================= */
 /* Print & PDF Stylesheet for Digitechzo Invoice Studio      */
 /* ========================================================= */
@@ -226,10 +234,24 @@
     page-break-inside: avoid !important;
   }
 
-  /* Header in print */
+  /* Header in print - 2 balanced columns matching metadata grid */
   #invoiceDocument .invoice-header {
+    display: grid !important;
+    grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+    gap: 12px !important;
+    align-items: start !important;
     padding-bottom: 10px !important;
     border-bottom-width: 1px !important;
+  }
+  #invoiceDocument .invoice-header-left {
+    grid-column: span 7 / span 7 !important;
+  }
+  #invoiceDocument .invoice-header-right {
+    grid-column: span 5 / span 5 !important;
+    text-align: right !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-end !important;
   }
 
   /* Table styling in print */
@@ -275,11 +297,11 @@
     border-radius: 10px !important;
   }
 
-  /* Section 2: Metadata Grid - Side-by-side on same row */
+  /* Section 2: Metadata Grid - Side-by-side on same row with equal balanced width */
   #invoiceDocument .invoice-meta-grid {
     display: grid !important;
     grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
-    gap: 10px !important;
+    gap: 12px !important;
     align-items: stretch !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
@@ -307,7 +329,30 @@
     grid-column: span 5 / span 5 !important;
   }
 
-  /* Section 5: Terms & Signature Grid - Always side-by-side on same row and equal height */
+  /* Section 5: Dedicated Notes & Terms Section */
+  #invoiceDocument .invoice-notes-section {
+    display: block !important;
+    width: 100% !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Section 6: Dedicated Team & Authorized Signatory Section */
+  #invoiceDocument .invoice-team-signature-section {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: flex-end !important;
+    width: 100% !important;
+    padding-top: 8px !important;
+    padding-bottom: 4px !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Backward compatibility for terms grid if ever invoked */
   #invoiceDocument .invoice-terms-grid {
     display: grid !important;
     grid-template-columns: repeat(12, minmax(0, 1fr)) !important;

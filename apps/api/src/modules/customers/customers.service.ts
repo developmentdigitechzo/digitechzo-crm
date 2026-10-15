@@ -211,12 +211,9 @@ export class CustomersService {
           companyName: dto.companyName,
           email: dto.email,
           phone: dto.phone,
-          status: 'WON',
-          address: dto.address || null,
-          city: dto.city || null,
-          state: dto.state || null,
-          postalCode: dto.postalCode || null,
-          country: dto.country || 'India',
+          status: 'CONVERTED',
+          source: 'MANUAL',
+          serviceInterest: 'Direct Customer Creation',
         },
       });
       originatingLeadId = createdLead.id;

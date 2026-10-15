@@ -29,7 +29,7 @@ export const FilterPills: React.FC<FilterPillsProps> = ({
   className,
 }) => {
   return (
-    <div className={cn("flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 select-none", className)}>
+    <div className={cn("flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 select-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden", className)}>
       {options.map((opt) => {
         const isActive = opt.id === activeId;
         const countColor = opt.countVariant ? countVariantClasses[opt.countVariant] : 'bg-slate-100 text-txt-secondary';

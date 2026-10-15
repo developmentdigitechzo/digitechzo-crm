@@ -123,28 +123,26 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6 select-none">
       {/* 1. Page Header with Dynamic Date & Time Widgets */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-4 border-b border-border">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pb-3.5 border-b border-border">
         <div>
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-txt-primary">
               Dashboard
             </h1>
-            {user && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-badge text-[11px] font-semibold bg-primary-soft text-primary border border-emerald-200">
-                {user.firstName} ({user.role})
-              </span>
-            )}
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-[#16A34A] border border-emerald-200">
+              {user ? `${user.firstName} (${user.role})` : 'DigiTechzo (ADMIN)'}
+            </span>
           </div>
           <p className="text-xs text-txt-muted mt-1">
-            Your sales activity and priority queue at a glance
+            Your sales activity and priority queue at a glance.
           </p>
         </div>
 
-        {/* Dynamic Date & Current Time Widgets */}
-        <div className="flex flex-col min-[480px]:flex-row items-stretch min-[480px]:items-center gap-2.5 sm:gap-3 w-full sm:w-auto">
-          {/* Today Date Widget */}
-          <div className="flex items-center gap-3 px-3.5 py-2 rounded-btn bg-white border border-border shadow-xs">
-            <div className="flex h-8 w-8 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0">
+        {/* Dynamic Date & Time Widget */}
+        <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          {/* Today Date Widget matching screenshot */}
+          <div className="flex items-center gap-3 px-3.5 py-2 rounded-xl bg-white border border-border shadow-2xs">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-[#16A34A] shrink-0 border border-emerald-100">
               <Calendar className="h-4 w-4" />
             </div>
             <div className="text-left leading-tight">
@@ -155,68 +153,53 @@ export const DashboardPage: React.FC = () => {
                 {dayName}
               </span>
               <span className="text-[11px] text-txt-secondary block mt-0.5">
-                {formattedDate}
-              </span>
-            </div>
-          </div>
-
-          {/* Current Time Widget */}
-          <div className="flex items-center gap-3 px-3.5 py-2 rounded-btn bg-white border border-border shadow-xs">
-            <div className="flex h-8 w-8 items-center justify-center rounded-btn bg-slate-100 text-slate-600 shrink-0">
-              <Clock className="h-4 w-4" />
-            </div>
-            <div className="text-left leading-tight">
-              <span className="text-[10px] font-bold text-txt-muted uppercase tracking-wider block">
-                Current Time
-              </span>
-              <span className="text-sm font-bold text-txt-primary font-tabular block mt-0.5">
-                {formattedTime}
-              </span>
-              <span className="text-[10px] text-[#57B71B] font-medium flex items-center gap-1 mt-0.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#57B71B] animate-pulse" /> Live
+                {formattedDate} &bull; {formattedTime}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. KPI Summary: 4 Action-Focused Metric Cards */}
-      <div className="grid grid-cols-1 min-[380px]:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
+      {/* 2. KPI Summary: 4 Action-Focused Metric Cards (2-column on mobile, 4-column on desktop) */}
+      <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         {/* Metric 1: Overdue */}
         <Card
           onClick={() => navigate('/tasks?filter=OVERDUE')}
           title="Click to view Overdue Tasks"
-          className="cursor-pointer border-border hover:border-[#DC2626]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+          className="cursor-pointer border-border hover:border-[#DC2626]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none rounded-xl"
         >
-          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
-                Overdue
-              </p>
+          <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
               <div
-                className={`text-2xl font-bold tracking-tight font-tabular ${
-                  overdueTasks.length > 0 ? 'text-[#DC2626]' : 'text-txt-primary'
+                className={`flex h-9 w-9 items-center justify-center rounded-full shrink-0 transition-transform group-hover:scale-105 ${
+                  overdueTasks.length > 0
+                    ? 'bg-[#FEF2F2] text-[#DC2626] border border-rose-200'
+                    : 'bg-emerald-50 text-[#16A34A] border border-emerald-100'
                 }`}
               >
-                {overdueTasks.length}
+                <Clock className="h-4 w-4" />
               </div>
-              <p
-                className={`text-[11px] font-medium flex items-center gap-1 ${
-                  overdueTasks.length > 0 ? 'text-[#DC2626]' : 'text-txt-muted'
-                }`}
-              >
-                {overdueTasks.length > 0 ? 'Action required' : 'None overdue'}
-              </p>
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-[10px] sm:text-[11px] font-bold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors truncate">
+                  Overdue
+                </p>
+                <div
+                  className={`text-xl sm:text-2xl font-bold tracking-tight font-tabular leading-tight ${
+                    overdueTasks.length > 0 ? 'text-[#DC2626]' : 'text-txt-primary'
+                  }`}
+                >
+                  {overdueTasks.length}
+                </div>
+                <p
+                  className={`text-[10px] sm:text-[11px] font-medium truncate ${
+                    overdueTasks.length > 0 ? 'text-[#DC2626]' : 'text-txt-muted'
+                  }`}
+                >
+                  {overdueTasks.length > 0 ? 'Action required' : 'None overdue'}
+                </p>
+              </div>
             </div>
-            <div
-              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 transition-transform group-hover:scale-105 ${
-                overdueTasks.length > 0
-                  ? 'bg-[#FEF2F2] text-[#DC2626]'
-                  : 'bg-slate-100 text-txt-muted'
-              }`}
-            >
-              <Clock className="h-5 w-5" />
-            </div>
+            <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-txt-primary shrink-0 transition-colors" />
           </CardContent>
         </Card>
 
@@ -224,23 +207,26 @@ export const DashboardPage: React.FC = () => {
         <Card
           onClick={() => navigate('/tasks?filter=PENDING')}
           title="Click to view Follow-ups & Pending Tasks"
-          className="cursor-pointer border-border hover:border-[#57B71B]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+          className="cursor-pointer border-border hover:border-[#57B71B]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none rounded-xl"
         >
-          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
-                Follow-ups Due
-              </p>
-              <div className="text-2xl font-bold tracking-tight text-txt-primary font-tabular">
-                {pendingTasks.length}
+          <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-[#16A34A] border border-emerald-100 shrink-0 transition-transform group-hover:scale-105">
+                <PhoneCall className="h-4 w-4" />
               </div>
-              <p className="text-[11px] text-txt-secondary font-medium">
-                {pendingTasks.length === 0 ? 'All caught up' : 'Pending tasks'}
-              </p>
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-[10px] sm:text-[11px] font-bold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors truncate">
+                  Follow-ups Due
+                </p>
+                <div className="text-xl sm:text-2xl font-bold tracking-tight text-txt-primary font-tabular leading-tight">
+                  {pendingTasks.length}
+                </div>
+                <p className="text-[10px] sm:text-[11px] text-txt-secondary font-medium truncate">
+                  {pendingTasks.length === 0 ? 'All caught up' : `${pendingTasks.length} pending`}
+                </p>
+              </div>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-[#F0FDF4] text-[#57B71B] shrink-0 transition-transform group-hover:scale-105">
-              <PhoneCall className="h-5 w-5" />
-            </div>
+            <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-txt-primary shrink-0 transition-colors" />
           </CardContent>
         </Card>
 
@@ -248,33 +234,36 @@ export const DashboardPage: React.FC = () => {
         <Card
           onClick={() => navigate('/leads?status=HOT')}
           title="Click to view Hot Leads"
-          className="cursor-pointer border-border hover:border-[#D97706]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+          className="cursor-pointer border-border hover:border-[#D97706]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none rounded-xl"
         >
-          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between">
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
-                Hot Leads
-              </p>
+          <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
               <div
-                className={`text-2xl font-bold tracking-tight font-tabular ${
-                  hotLeads.length > 0 ? 'text-[#D97706]' : 'text-txt-primary'
+                className={`flex h-9 w-9 items-center justify-center rounded-full shrink-0 transition-transform group-hover:scale-105 ${
+                  hotLeads.length > 0
+                    ? 'bg-[#FFFBEB] text-[#D97706] border border-amber-200'
+                    : 'bg-emerald-50 text-[#16A34A] border border-emerald-100'
                 }`}
               >
-                {hotLeads.length}
+                <Flame className="h-4 w-4" />
               </div>
-              <p className="text-[11px] text-txt-secondary font-medium">
-                {hotLeads.length > 0 ? 'High priority' : 'No hot leads'}
-              </p>
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-[10px] sm:text-[11px] font-bold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors truncate">
+                  Hot Leads
+                </p>
+                <div
+                  className={`text-xl sm:text-2xl font-bold tracking-tight font-tabular leading-tight ${
+                    hotLeads.length > 0 ? 'text-[#D97706]' : 'text-txt-primary'
+                  }`}
+                >
+                  {hotLeads.length}
+                </div>
+                <p className="text-[10px] sm:text-[11px] text-txt-secondary font-medium truncate">
+                  {hotLeads.length > 0 ? 'High priority' : 'No hot leads'}
+                </p>
+              </div>
             </div>
-            <div
-              className={`flex h-10 w-10 items-center justify-center rounded-btn shrink-0 transition-transform group-hover:scale-105 ${
-                hotLeads.length > 0
-                  ? 'bg-[#FFFBEB] text-[#D97706]'
-                  : 'bg-slate-100 text-txt-muted'
-              }`}
-            >
-              <Flame className="h-5 w-5" />
-            </div>
+            <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-txt-primary shrink-0 transition-colors" />
           </CardContent>
         </Card>
 
@@ -282,23 +271,26 @@ export const DashboardPage: React.FC = () => {
         <Card
           onClick={() => navigate('/pipeline')}
           title="Click to view Deals & Pipeline"
-          className="cursor-pointer border-border hover:border-[#16A34A]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none"
+          className="cursor-pointer border-border hover:border-[#16A34A]/70 hover:shadow-subtle transition-all active:scale-[0.99] group shadow-none rounded-xl"
         >
-          <CardContent className="p-3.5 sm:p-5 flex items-center justify-between gap-2">
-            <div className="space-y-1 min-w-0">
-              <p className="text-[10px] sm:text-[11px] font-semibold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors">
-                Active Pipeline
-              </p>
-              <div className="text-base sm:text-xl xl:text-2xl font-bold tracking-tight text-txt-primary font-tabular whitespace-nowrap">
-                {formatCurrency(totalPipelineValue)}
+          <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-[#16A34A] border border-emerald-100 shrink-0 transition-transform group-hover:scale-105">
+                <span className="font-bold text-sm">₹</span>
               </div>
-              <p className="text-[10px] sm:text-[11px] text-[#16A34A] font-medium flex items-center gap-1 truncate">
-                <TrendingUp className="h-3.5 w-3.5 shrink-0" /> {totalDealsCount} active deals
-              </p>
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-[10px] sm:text-[11px] font-bold text-txt-muted uppercase tracking-wider group-hover:text-txt-primary transition-colors truncate">
+                  Active Pipeline
+                </p>
+                <div className="text-base sm:text-xl xl:text-2xl font-bold tracking-tight text-txt-primary font-tabular whitespace-nowrap leading-tight">
+                  {formatCurrency(totalPipelineValue)}
+                </div>
+                <p className="text-[10px] sm:text-[11px] text-[#16A34A] font-medium flex items-center gap-1 truncate">
+                  <TrendingUp className="h-3 w-3 shrink-0" /> {totalDealsCount} active deals
+                </p>
+              </div>
             </div>
-            <div className="flex h-10 w-10 items-center justify-center rounded-btn bg-emerald-50 text-[#16A34A] shrink-0 transition-transform group-hover:scale-105">
-              <Calendar className="h-5 w-5" />
-            </div>
+            <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-txt-primary shrink-0 transition-colors" />
           </CardContent>
         </Card>
       </div>
@@ -310,17 +302,19 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 3. Main Operational Workspace (2-Column Desktop Grid) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column (7 cols): Action Priority Queue & Recent Leads */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* Priority Follow-ups / Action Queue */}
-          <Card className="border-border shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between py-3.5 px-4 sm:px-5 border-b border-border bg-slate-50/50">
+      {/* 3. Main Operational Workspace (Mobile order: 1. Priority Follow-ups, 2. Pipeline Snapshot, 3. Recent Leads, 4. Recent Activity) */}
+      <div className="flex flex-col lg:grid lg:grid-cols-12 gap-4 sm:gap-6">
+        {/* Section 1: Priority Follow-ups / Action Queue */}
+        <div className="order-1 lg:col-span-7">
+          <Card className="border-border shadow-none rounded-xl overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between py-3 px-4 sm:px-5 border-b border-border bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Priority Follow-ups
                 </CardTitle>
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-200/80 text-txt-muted text-[10px] font-bold" title="Tasks and scheduled follow-ups">
+                  i
+                </span>
                 <span
                   className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
                     tasks.length > 0
@@ -341,11 +335,11 @@ export const DashboardPage: React.FC = () => {
             <CardContent className="p-0">
               {tasks.length === 0 ? (
                 <div className="p-8 text-center flex flex-col items-center justify-center">
-                  <div className="h-10 w-10 rounded-full bg-[#F0FDF4] flex items-center justify-center text-[#57B71B] mb-2.5">
+                  <div className="h-11 w-11 rounded-full bg-[#F0FDF4] border border-emerald-200 flex items-center justify-center text-[#16A34A] mb-2.5 shadow-2xs">
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
                   <p className="text-xs font-bold text-txt-primary">No pending follow-ups</p>
-                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5">
+                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5 leading-relaxed">
                     All caught up! No scheduled calls, messages, or tasks are overdue.
                   </p>
                 </div>
@@ -405,7 +399,7 @@ export const DashboardPage: React.FC = () => {
                           <Button
                             size="sm"
                             variant="secondary"
-                            className="h-7 text-xs px-2.5 bg-slate-100 hover:bg-slate-200 text-txt-primary"
+                            className="h-7 text-xs px-2.5 bg-slate-100 hover:bg-slate-200 text-txt-primary cursor-pointer"
                             asChild
                           >
                             <Link to="/activities">Log</Link>
@@ -418,14 +412,85 @@ export const DashboardPage: React.FC = () => {
               )}
             </CardContent>
           </Card>
+        </div>
 
-          {/* Recent Leads */}
-          <Card className="border-border shadow-none">
-            <CardHeader className="flex flex-row items-center justify-between py-3.5 px-4 sm:px-5 border-b border-border bg-slate-50/50">
+        {/* Section 2: Pipeline Snapshot */}
+        <div className="order-2 lg:col-span-5">
+          <Card className="border-border shadow-none rounded-xl overflow-hidden">
+            <CardHeader className="py-3 px-4 sm:px-5 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
+                  Pipeline Snapshot
+                </CardTitle>
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-200/80 text-txt-muted text-[10px] font-bold" title="Pipeline stages overview">
+                  i
+                </span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-txt-secondary border border-border">
+                  {totalDealsCount}
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="p-3 sm:p-4 space-y-2">
+              {stagesSummary.map((stage) => {
+                const isWon = stage.stageType === 'WON';
+                const percentage =
+                  totalPipelineValue > 0
+                    ? Math.round((stage.totalValue / totalPipelineValue) * 100)
+                    : 0;
+
+                return (
+                  <div
+                    key={stage.name}
+                    onClick={() => navigate('/pipeline')}
+                    title={`Click to view ${stage.name} deals in Pipeline`}
+                    className="cursor-pointer p-2 sm:p-2.5 rounded-lg border border-border/70 bg-white hover:bg-slate-50 hover:border-[#57B71B]/60 transition-all space-y-1.5 active:scale-[0.99]"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className={`h-2 w-2 rounded-full shrink-0 ${
+                            isWon ? 'bg-[#16A34A]' : 'bg-[#57B71B]'
+                          }`}
+                        />
+                        <span className="font-semibold text-txt-primary truncate">{stage.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 font-tabular shrink-0 ml-2">
+                        <span className="text-[10px] sm:text-[11px] px-1.5 py-0.2 rounded bg-slate-100 text-txt-secondary font-medium">
+                          {stage.dealCount} deals
+                        </span>
+                        <span className="font-bold text-txt-primary text-xs">
+                          {formatCurrency(stage.totalValue)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Stage Distribution Progress Bar */}
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          isWon ? 'bg-[#16A34A]' : 'bg-[#57B71B]'
+                        }`}
+                        style={{ width: `${stage.dealCount > 0 ? Math.max(percentage, 5) : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Section 3: Recent Leads */}
+        <div className="order-3 lg:col-span-7">
+          <Card className="border-border shadow-none rounded-xl overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between py-3 px-4 sm:px-5 border-b border-border bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Recent Leads
                 </CardTitle>
+                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-200/80 text-txt-muted text-[10px] font-bold" title="Prospect leads list">
+                  i
+                </span>
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-txt-secondary border border-border">
                   {leads.length}
                 </span>
@@ -440,11 +505,11 @@ export const DashboardPage: React.FC = () => {
             <CardContent className="p-0">
               {leads.length === 0 ? (
                 <div className="p-8 text-center flex flex-col items-center justify-center">
-                  <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-txt-muted mb-2.5">
+                  <div className="h-11 w-11 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-txt-muted mb-2.5 shadow-2xs">
                     <Users className="h-5 w-5" />
                   </div>
                   <p className="text-xs font-bold text-txt-primary">No leads recorded yet</p>
-                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5">
+                  <p className="text-[11px] text-txt-muted max-w-xs mt-0.5 leading-relaxed">
                     Leads created by your sales team will automatically appear here.
                   </p>
                 </div>
@@ -455,10 +520,10 @@ export const DashboardPage: React.FC = () => {
                       key={lead.id}
                       onClick={() => navigate(`/leads/${lead.id}`)}
                       title={`Click to open ${lead.fullName}`}
-                      className="cursor-pointer p-3.5 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/80 transition-colors gap-2 sm:gap-0"
+                      className="cursor-pointer p-3 px-4 sm:px-5 flex flex-col sm:flex-row sm:items-center justify-between hover:bg-slate-50/80 transition-colors gap-2 sm:gap-0"
                     >
                       <div className="min-w-0 space-y-0.5">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-bold text-txt-primary hover:text-[#57B71B] transition-colors">
                             {lead.fullName}
                           </span>
@@ -490,72 +555,10 @@ export const DashboardPage: React.FC = () => {
           </Card>
         </div>
 
-        {/* Right Column (5 cols): Pipeline Summary & Recent Sales Activity */}
-        <div className="lg:col-span-5 space-y-6">
-          {/* Pipeline Snapshot */}
-          <Card className="border-border shadow-none">
-            <CardHeader className="py-3.5 px-4 sm:px-5 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
-                  Pipeline Snapshot
-                </CardTitle>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-100 text-txt-secondary border border-border">
-                  {totalDealsCount}
-                </span>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 space-y-2.5">
-              {stagesSummary.map((stage) => {
-                const isWon = stage.stageType === 'WON';
-                const percentage =
-                  totalPipelineValue > 0
-                    ? Math.round((stage.totalValue / totalPipelineValue) * 100)
-                    : 0;
-
-                return (
-                  <div
-                    key={stage.name}
-                    onClick={() => navigate('/pipeline')}
-                    title={`Click to view ${stage.name} deals in Pipeline`}
-                    className="cursor-pointer p-2.5 rounded-btn border border-border/60 bg-white hover:bg-slate-50 hover:border-[#57B71B]/60 transition-all space-y-1.5 active:scale-[0.99]"
-                  >
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            isWon ? 'bg-[#16A34A]' : 'bg-[#57B71B]'
-                          }`}
-                        />
-                        <span className="font-semibold text-txt-primary">{stage.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2 font-tabular">
-                        <span className="text-[11px] px-1.5 py-0.2 rounded bg-slate-100 text-txt-secondary font-medium">
-                          {stage.dealCount} deals
-                        </span>
-                        <span className="font-bold text-txt-primary text-xs">
-                          {formatCurrency(stage.totalValue)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Stage Distribution Progress Bar */}
-                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          isWon ? 'bg-[#16A34A]' : 'bg-[#57B71B]'
-                        }`}
-                        style={{ width: `${stage.dealCount > 0 ? Math.max(percentage, 5) : 0}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Recent Activity Stream */}
-          <Card className="border-border shadow-none">
-            <CardHeader className="py-3.5 px-4 sm:px-5 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
+        {/* Section 4: Recent Sales Activity */}
+        <div className="order-4 lg:col-span-5">
+          <Card className="border-border shadow-none rounded-xl overflow-hidden">
+            <CardHeader className="py-3 px-4 sm:px-5 border-b border-border flex flex-row items-center justify-between bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xs sm:text-sm font-bold text-txt-primary uppercase tracking-wide">
                   Recent Activity
@@ -571,7 +574,7 @@ export const DashboardPage: React.FC = () => {
                 History <ChevronRight className="h-3 w-3" />
               </Link>
             </CardHeader>
-            <CardContent className="p-4">
+            <CardContent className="p-3 sm:p-4">
               {activities.length === 0 ? (
                 <div className="py-6 text-center flex flex-col items-center justify-center">
                   <div className="h-9 w-9 rounded-full bg-slate-100 flex items-center justify-center text-txt-muted mb-2">

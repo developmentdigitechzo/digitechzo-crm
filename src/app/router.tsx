@@ -75,6 +75,10 @@ export const router = createBrowserRouter([
         element: <InvoicesPage />,
       },
       {
+        path: 'in-voice',
+        element: <Navigate to="/invoices" replace />,
+      },
+      {
         path: 'customers',
         element: <CustomersPage />,
       },

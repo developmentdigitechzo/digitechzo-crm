@@ -996,16 +996,16 @@ export const LeadDetailPage: React.FC = () => {
 
         {/* Active Commercial Opportunity Pill */}
         {activeDeal && (
-          <div className="flex items-center justify-between p-2.5 rounded-btn bg-slate-50 border border-border text-xs">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-2.5 rounded-btn bg-slate-50 border border-border text-xs gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-txt-muted">Commercial Deal:</span>
               <span className="font-semibold text-txt-primary">{activeDeal.title}</span>
               <span className="font-bold text-primary tabular-nums">
                 ({formatCurrency(Number(activeDeal.value || activeDeal.amount || 0))})
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-txt-muted">Stage: {activeDeal.stage?.name || 'In Progress'}</span>
+            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+              <span className="text-txt-muted hidden xs:inline">Stage: {activeDeal.stage?.name || 'In Progress'}</span>
               <Button
                 variant="outline"
                 size="sm"
@@ -1095,7 +1095,7 @@ export const LeadDetailPage: React.FC = () => {
       {/* 4. Master 360° Lead Summary Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 bg-white p-4 rounded-card border border-border shadow-card">
         {/* Contact Info */}
-        <div className="space-y-1.5 md:border-r border-border md:pr-4">
+        <div className="space-y-1.5 md:border-r border-border md:pr-4 border-b md:border-b-0 pb-3 md:pb-0">
           <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
             Prospect Information
           </span>
@@ -1127,7 +1127,7 @@ export const LeadDetailPage: React.FC = () => {
         </div>
 
         {/* Commercial Interest */}
-        <div className="space-y-1.5 md:border-r border-border md:pr-4">
+        <div className="space-y-1.5 md:border-r border-border md:pr-4 border-b md:border-b-0 pb-3 md:pb-0">
           <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
             Commercial Requirement
           </span>
@@ -1143,7 +1143,7 @@ export const LeadDetailPage: React.FC = () => {
         </div>
 
         {/* Next Action Snapshot */}
-        <div className="space-y-1.5 md:border-r border-border md:pr-4">
+        <div className="space-y-1.5 md:border-r border-border md:pr-4 border-b md:border-b-0 pb-3 md:pb-0">
           <span className="text-[10px] font-semibold text-txt-muted uppercase tracking-wider block">
             Next Action Follow-Up
           </span>
@@ -1195,7 +1195,7 @@ export const LeadDetailPage: React.FC = () => {
       </div>
 
       {/* 5. Tabbed Navigation */}
-      <div className="flex items-center gap-1 border-b border-border bg-white px-2 rounded-t-card overflow-x-auto shadow-subtle">
+      <div className="flex items-center gap-1 border-b border-border bg-white px-2 rounded-t-card overflow-x-auto shadow-subtle [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         {[
           { id: 'overview', label: 'Overview & Scope', icon: FileText },
           { id: 'activities', label: `Touchpoint Timeline (${activities.length})`, icon: ActivityIcon },
