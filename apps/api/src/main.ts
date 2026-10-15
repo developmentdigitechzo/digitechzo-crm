@@ -29,8 +29,14 @@ async function bootstrap() {
   );
 
   // CORS configuration
+  const allowedOrigins = corsOrigin.includes(',')
+    ? corsOrigin.split(',').map((origin: string) => origin.trim())
+    : corsOrigin === '*'
+      ? true
+      : corsOrigin.trim();
+
   app.enableCors({
-    origin: corsOrigin.includes(',') ? corsOrigin.split(',') : corsOrigin,
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
@@ -77,7 +83,7 @@ async function bootstrap() {
     },
   });
 
-  await app.listen(port);
+  await app.listen(port, '0.0.0.0');
   logger.log(`=======================================================`);
   logger.log(` DigiTechzo CRM API listening on: http://localhost:${port}/${prefix}`);
   logger.log(` Swagger OpenAPI Documentation:    http://localhost:${port}/api/docs`);
