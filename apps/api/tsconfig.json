@@ -25,5 +25,6 @@
       "@database/*": ["src/database/*"]
     }
   },
-  "include": ["src/**/*", "test/**/*", "prisma/**/*"]
+  "include": ["src/**/*", "prisma/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*spec.ts"]
 }
