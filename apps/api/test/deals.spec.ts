@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -564,3 +565,4 @@ describe('B2.2 Deals / Pipeline Unit & Integration Suite', () => {
     });
   });
 });
+

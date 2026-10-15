@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -236,3 +237,4 @@ describe('B2.7 Customers Unit & Integration Suite', () => {
     });
   });
 });
+

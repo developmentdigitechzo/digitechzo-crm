@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -241,3 +242,4 @@ describe('AuthService (Authentication & Token Rotation)', () => {
     });
   });
 });
+

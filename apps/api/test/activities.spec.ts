@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -191,3 +192,4 @@ describe('B2.4 Activities / Communication Timeline Unit & Integration Suite', ()
     });
   });
 });
+

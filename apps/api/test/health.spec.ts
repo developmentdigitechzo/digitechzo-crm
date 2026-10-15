@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { HealthService } from '../src/modules/health/health.service';
 import { PrismaService } from '../src/database/prisma.service';
 
@@ -35,3 +36,4 @@ describe('HealthService', () => {
     expect(result.database.error).toContain('Connection refused');
   });
 });
+

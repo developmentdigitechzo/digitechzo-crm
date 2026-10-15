@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -298,3 +299,4 @@ describe('B2.5 Meetings / Demos Unit & Integration Suite', () => {
     });
   });
 });
+

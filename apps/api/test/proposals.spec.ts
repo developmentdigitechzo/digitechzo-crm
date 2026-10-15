@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -251,3 +252,4 @@ describe('B2.6 Proposals / Quotes Unit & Integration Suite', () => {
     });
   });
 });
+

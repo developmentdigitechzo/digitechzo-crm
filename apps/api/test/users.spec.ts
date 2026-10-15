@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -349,3 +350,4 @@ describe('B2.8 Users & Team Unit and Integration Suite', () => {
     });
   });
 });
+

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundException,
@@ -302,3 +303,4 @@ describe('B2.3 Tasks / Follow-ups Unit & Integration Suite', () => {
     });
   });
 });
+

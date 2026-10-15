@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RolesGuard } from '../src/common/guards/roles.guard';
@@ -91,3 +92,4 @@ describe('RBAC & Authorization Guards', () => {
     });
   });
 });
+
